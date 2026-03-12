@@ -264,6 +264,8 @@ For each trajectory, compute `progress(t) = distance(AST_t) / distance(AST_0)`.
 
 Healthy trajectory: progress(t) monotonically decreasing.
 
+![Animation](./animation.gif)
+
 ### 5.4 Reasoning Collapse Taxonomy
 
 Collapse is a **process**, not a state. It must be distinguished from simple failure (OOD, insufficient capacity).
