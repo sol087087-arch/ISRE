@@ -17,7 +17,7 @@ Stop conditions: DONE action, canonical form reached, or max_steps.
 
 ---
 
-![Architecture](./ArchitectureISRE.jpg)
+![Architecture](./architecture.jpg)
 
 ## 2. Architecture
 
