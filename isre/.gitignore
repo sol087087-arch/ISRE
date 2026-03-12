@@ -1,0 +1,21 @@
+# python
+__pycache__/
+*.pyc
+*.pyo
+
+# venv
+venv/
+.env
+
+# vscode
+.vscode/
+
+# generated datasets
+isre/trajectories/*.json
+
+# viewer output
+viewer_out/
+
+# temp
+tmp/
+*.log
