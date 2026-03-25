@@ -1,4 +1,4 @@
-# Interpretable Symbolic Reasoning Engine (ISRE)
+# Interpretable Symbolic Reasoning Engine (ISRE) 
 ## Project Specification v1
 
 **Goal:** Build an interpretable neuro-symbolic system that learns to simplify algebraic expressions via AST transformations, with emphasis on comparing architectural choices (KAN vs MLP) and diagnosing reasoning collapse.
