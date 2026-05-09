@@ -62,12 +62,23 @@ def sample_canonical_polynomial(
     Constant term included with probability constant_prob.
     Examples: 3x^2 + 2x + 1, -x^3 + 5x, 4x^4 - 2x^2 + 7
     """
-    # Pick non-constant degrees first (guaranteed ≥ 1 term with degree ≥ 1)
-    non_const_count = rng.randint(max(1, min_terms - 1), min(max_terms, max_degree))
-    non_const_degrees = sorted(
-        rng.sample(range(1, max_degree + 1), non_const_count),
-        reverse=True,
-    )
+    # First pick the polynomial's leading degree uniformly in [1, max_degree].
+    # Then pick non-constant degrees as a subset of [1, leading_degree], always
+    # including leading_degree itself. This avoids the previous bias toward
+    # max_degree=4 (which appeared in 62% of polys).
+    leading_degree = rng.randint(1, max_degree)
+    available_lower = list(range(1, leading_degree))  # may be empty if leading=1
+    extra_count = rng.randint(0, min(max_terms - 1, len(available_lower)))
+    extra_degrees = rng.sample(available_lower, extra_count) if extra_count else []
+    non_const_degrees = sorted([leading_degree, *extra_degrees], reverse=True)
+    # Honor min_terms if specified (count includes optional constant added below)
+    while len(non_const_degrees) + 1 < min_terms and available_lower:
+        # need more terms — pull additional unique lower degrees if available
+        remaining = [d for d in available_lower if d not in non_const_degrees]
+        if not remaining:
+            break
+        non_const_degrees.append(rng.choice(remaining))
+        non_const_degrees = sorted(set(non_const_degrees), reverse=True)
 
     # Optionally add constant term
     include_constant = rng.random() < constant_prob
@@ -263,8 +274,9 @@ def inverse_unfold_const(rng: random.Random, root: ASTNode, node: ASTNode, node_
 
 
 def inverse_split_power(rng: random.Random, root: ASTNode, node: ASTNode, node_id: int) -> InverseResult:
-    """Pow(x, n) → Mul(Pow(x, a), Pow(x, b)) where a+b=n, n ≤ 4.
-    Forward: MERGE_POWER"""
+    """Pow(x, n) → Mul(Pow(x, a1), Pow(x, a2), ..., Pow(x, ak)) where Σai = n, n ≤ 4.
+    Splits into arity 2..n parts (uniform over k, then random composition).
+    Forward: MERGE_POWER (after FLATTEN_MUL if arity ≥ 3 got nested by UNFLATTEN_MUL)."""
     if node.node_type != NodeType.POW:
         return None
     if node.children[0].node_type != NodeType.VARIABLE:
@@ -278,14 +290,25 @@ def inverse_split_power(rng: random.Random, root: ASTNode, node: ASTNode, node_i
     if n < 2 or n > 4:
         return None
 
-    a = rng.randint(1, n - 1)
-    b = n - a
-    base_var = node.children[0].value
+    # Pick number of parts k ∈ [2, n]. Each part ≥ 1, sum = n.
+    k = rng.randint(2, n)
+    # Random composition: pick k-1 cut points in [1, n-1] without replacement, then take diffs.
+    cuts = sorted(rng.sample(range(1, n), k - 1)) if k > 1 else []
+    parts = []
+    prev = 0
+    for c in cuts:
+        parts.append(c - prev)
+        prev = c
+    parts.append(n - prev)
+    # Sanity: all parts ≥ 1, sum = n
+    assert all(p >= 1 for p in parts) and sum(parts) == n
 
-    replacement = Mul(
-        Pow(ASTNode(NodeType.VARIABLE, value=base_var), Num(a)),
-        Pow(ASTNode(NodeType.VARIABLE, value=base_var), Num(b)),
-    )
+    base_var = node.children[0].value
+    factors = [
+        Pow(ASTNode(NodeType.VARIABLE, value=base_var), Num(p))
+        for p in parts
+    ]
+    replacement = Mul(*factors)
 
     new_root = _replace_node(root, node, replacement)
     if new_root is None:
@@ -294,6 +317,208 @@ def inverse_split_power(rng: random.Random, root: ASTNode, node: ASTNode, node_i
 
     fwd_id = _find_node_id(new_root, replacement)
     return (new_root, fwd_id) if fwd_id is not None else None
+
+
+def inverse_factor_pair(rng: random.Random, root: ASTNode, node: ASTNode, node_id: int) -> InverseResult:
+    """Add(Mul(c1,p1), Mul(c2,p2), ...) → Mul(g, Add(Mul(c1/g,p1), Mul(c2/g,p2), ...))
+
+    Pulls out a common positive numeric factor g (with 2 ≤ g ≤ 3 per spec §4.3
+    so that forward expand→collect is a net complexity decrease).
+
+    Forward action: EXPAND on the new outer Mul.
+
+    Constraints:
+      - All children of the Add must be either:
+          * Num(c) with c > 0, or
+          * Mul(Num(c), bare_monomial) with c > 0
+      - The integer GCD of all child coefficients must be ≥ 2 and ≤ 3.
+      - Bare terms (e.g. plain x) have implicit coeff 1, which kills the GCD;
+        such Adds are skipped. This is intentional — keeps the case clean.
+    """
+    if node.node_type != NodeType.ADD:
+        return None
+    if len(node.children) < 2:
+        return None
+
+    # Extract (coeff, monomial_or_None) for every child. Bail on any non-conforming child.
+    parts: List[Tuple[int, Optional[ASTNode]]] = []
+    for child in node.children:
+        if child.node_type == NodeType.NUMBER:
+            try:
+                c = int(float(child.value))
+            except (ValueError, TypeError):
+                return None
+            if c <= 0:
+                return None
+            parts.append((c, None))
+        elif (child.node_type == NodeType.MUL
+                and len(child.children) == 2
+                and child.children[0].node_type == NodeType.NUMBER
+                and _is_bare_term(child.children[1])):
+            try:
+                c = int(float(child.children[0].value))
+            except (ValueError, TypeError):
+                return None
+            if c <= 0:
+                return None
+            parts.append((c, child.children[1]))
+        else:
+            return None
+
+    # Compute GCD of all coefficients
+    from math import gcd
+    from functools import reduce as _reduce
+    g = _reduce(gcd, (c for c, _ in parts))
+    if g < 2 or g > 3:
+        return None
+
+    # Build factored children
+    new_add_children: List[ASTNode] = []
+    for c, mono in parts:
+        new_c = c // g
+        if mono is None:
+            # pure constant
+            new_add_children.append(Num(new_c))
+        else:
+            if new_c == 1:
+                new_add_children.append(mono.clone())
+            else:
+                new_add_children.append(Mul(Num(new_c), mono.clone()))
+
+    inner_add = Add(*new_add_children)
+    replacement = Mul(Num(g), inner_add)
+
+    new_root = _replace_node(root, node, replacement)
+    if new_root is None:
+        return None
+    new_root.mark_dirty()
+
+    # Forward action (EXPAND) targets the new outer Mul
+    fwd_id = _find_node_id(new_root, replacement)
+    return (new_root, fwd_id) if fwd_id is not None else None
+
+
+def inverse_factor_variable(rng: random.Random, root: ASTNode, node: ASTNode, node_id: int) -> InverseResult:
+    """Add(c1·x^a1, c2·x^a2, ..., ck·x^ak) where min(ai) ≥ 1
+    → Mul(x^min, Add(c1·x^(a1-min), c2·x^(a2-min), ...))
+
+    Pulls out a common variable factor x^k where k = min variable degree across
+    all children of an Add. Every child must be a monomial in x with degree ≥ 1.
+    Pure-constant terms break the factoring → bail.
+
+    Forward action: EXPAND on the new outer Mul.
+    """
+    if node.node_type != NodeType.ADD:
+        return None
+    if len(node.children) < 2:
+        return None
+
+    # Decompose every child into (coeff, var_degree); bail if anything doesn't fit.
+    parts: List[Tuple[int, int]] = []  # (coeff, degree)
+    for child in node.children:
+        info = _monomial_decomp(child)
+        if info is None:
+            return None
+        coeff, deg = info
+        if deg < 1:
+            return None  # pure constant kills the variable factor
+        parts.append((coeff, deg))
+
+    min_deg = min(d for _, d in parts)
+    if min_deg < 1:
+        return None
+    # Don't bother factoring out x^4 — leaves trivial inner Add of constants only.
+    # Require at least one child to keep degree ≥ 1 after factoring.
+    if not any(d - min_deg >= 1 for _, d in parts):
+        # All children would collapse to constants → still valid algebraically,
+        # but the inner Add becomes Add(c1, c2, ...) which is just FOLD_CONST
+        # territory and not what EXPAND would naturally re-derive cleanly.
+        return None
+
+    # Build factored inner Add
+    base_var = "x"
+    inner_terms: List[ASTNode] = []
+    for coeff, deg in parts:
+        new_deg = deg - min_deg
+        if new_deg == 0:
+            # pure coefficient
+            inner_terms.append(Num(coeff))
+        elif new_deg == 1:
+            if coeff == 1:
+                inner_terms.append(ASTNode(NodeType.VARIABLE, value=base_var))
+            elif coeff == -1:
+                inner_terms.append(Mul(Num(-1), ASTNode(NodeType.VARIABLE, value=base_var)))
+            else:
+                inner_terms.append(Mul(Num(coeff), ASTNode(NodeType.VARIABLE, value=base_var)))
+        else:
+            mono = Pow(ASTNode(NodeType.VARIABLE, value=base_var), Num(new_deg))
+            if coeff == 1:
+                inner_terms.append(mono)
+            elif coeff == -1:
+                inner_terms.append(Mul(Num(-1), mono))
+            else:
+                inner_terms.append(Mul(Num(coeff), mono))
+
+    inner_add = Add(*inner_terms)
+    factor = (
+        ASTNode(NodeType.VARIABLE, value=base_var) if min_deg == 1
+        else Pow(ASTNode(NodeType.VARIABLE, value=base_var), Num(min_deg))
+    )
+    replacement = Mul(factor, inner_add)
+
+    new_root = _replace_node(root, node, replacement)
+    if new_root is None:
+        return None
+    new_root.mark_dirty()
+
+    fwd_id = _find_node_id(new_root, replacement)
+    return (new_root, fwd_id) if fwd_id is not None else None
+
+
+def _monomial_decomp(node: ASTNode) -> Optional[Tuple[int, int]]:
+    """Decompose a child of an Add into (integer_coefficient, variable_degree).
+    Returns None if the node isn't a clean monomial in a single variable.
+
+    Recognized shapes:
+      Num(c)                                    → (c, 0)
+      Var()                                     → (1, 1)
+      Pow(Var, Num(n))                          → (1, n)
+      Mul(Num(c), Var())                        → (c, 1)
+      Mul(Num(c), Pow(Var, Num(n)))             → (c, n)
+    """
+    if node.node_type == NodeType.NUMBER:
+        try:
+            return (int(float(node.value)), 0)
+        except (ValueError, TypeError):
+            return None
+    if node.node_type == NodeType.VARIABLE:
+        return (1, 1)
+    if node.node_type == NodeType.POW:
+        if (node.children[0].node_type == NodeType.VARIABLE
+                and node.children[1].node_type == NodeType.NUMBER):
+            try:
+                return (1, int(float(node.children[1].value)))
+            except (ValueError, TypeError):
+                return None
+        return None
+    if node.node_type == NodeType.MUL and len(node.children) == 2:
+        c, m = node.children
+        if c.node_type != NodeType.NUMBER:
+            return None
+        try:
+            coeff = int(float(c.value))
+        except (ValueError, TypeError):
+            return None
+        if m.node_type == NodeType.VARIABLE:
+            return (coeff, 1)
+        if (m.node_type == NodeType.POW
+                and m.children[0].node_type == NodeType.VARIABLE
+                and m.children[1].node_type == NodeType.NUMBER):
+            try:
+                return (coeff, int(float(m.children[1].value)))
+            except (ValueError, TypeError):
+                return None
+    return None
 
 
 def inverse_introduce_redundant_one(rng: random.Random, root: ASTNode, node: ASTNode, node_id: int) -> InverseResult:
@@ -331,16 +556,17 @@ def inverse_introduce_redundant_zero(rng: random.Random, root: ASTNode, node: AS
 # ====================== INVERSE TRANSFORM REGISTRY ======================
 
 INVERSE_REGISTRY: List[Tuple[str, Callable, ActionType, float]] = [
-    # (name, function, forward_action, weight)
+    # (name, function, forward_action, weight) — weights match spec §4.3
     ("SPLIT_COEFFICIENT",       inverse_split_coefficient,         ActionType.COMBINE_COEFF,  0.20),
+    ("FACTOR_PAIR",             inverse_factor_pair,               ActionType.EXPAND,         0.10),
+    ("FACTOR_VARIABLE",         inverse_factor_variable,           ActionType.EXPAND,         0.10),
     ("UNCOLLECT_TERMS",         inverse_uncollect_terms,           ActionType.COLLECT_TERMS,  0.15),
+    ("SPLIT_POWER",             inverse_split_power,               ActionType.MERGE_POWER,    0.15),
     ("UNFLATTEN_ADD",           inverse_unflatten_add,             ActionType.FLATTEN_ADD,    0.10),
     ("UNFLATTEN_MUL",           inverse_unflatten_mul,             ActionType.FLATTEN_MUL,    0.10),
     ("UNFOLD_CONST",            inverse_unfold_const,              ActionType.FOLD_CONST,     0.05),
-    ("SPLIT_POWER",             inverse_split_power,               ActionType.MERGE_POWER,    0.15),
     ("INTRODUCE_REDUNDANT_ONE", inverse_introduce_redundant_one,   ActionType.REMOVE_ONE,     0.025),
     ("INTRODUCE_REDUNDANT_ZERO",inverse_introduce_redundant_zero,  ActionType.REMOVE_ZERO,    0.025),
-    # FACTOR_PAIR deferred — requires more complex pattern matching
 ]
 
 # Compositional constraints: (prev_inverse, current_inverse) pairs that are forbidden
@@ -587,6 +813,10 @@ def generate_dataset(
 # ====================== TESTS ======================
 
 if __name__ == "__main__":
+    import sys
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")  # Windows console: pretty() uses ├─/└─
+
     # Test canonical polynomial generation
     rng = random.Random(42)
     print("=== Sample canonical polynomials ===")
@@ -596,7 +826,10 @@ if __name__ == "__main__":
 
     # Test trajectory generation (small batch)
     print("\n=== Trajectory generation test ===")
-    trajs = generate_dataset(count=50, seed=42, output_dir="/tmp/test_trajectories")
+    import tempfile
+    test_dir = tempfile.mkdtemp(prefix="isre_traj_test_")
+    print(f"  output dir: {test_dir}")
+    trajs = generate_dataset(count=50, seed=42, output_dir=test_dir)
 
     if trajs:
         print(f"\n=== Sample trajectory ===")

@@ -168,7 +168,7 @@ class Trainer:
             weight_decay=weight_decay,
         )
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, mode="min", factor=0.5, patience=3, verbose=True,
+            self.optimizer, mode="min", factor=0.5, patience=3,
         )
 
     def train_epoch(
