@@ -136,22 +136,28 @@ class PolicyNetwork(nn.Module):
             node_embeddings: from encoder
             candidates: from symbolic engine
             temperature: for softmax sampling
-            greedy: if True, pick argmax
+            greedy: if True, pick argmax (deterministic)
 
         Returns:
             (node_id, action, log_prob)
+
+        log_prob semantics:
+          greedy=False — log π(a|s) under the stochastic policy; valid for
+                         REINFORCE / policy gradient.
+          greedy=True  — log π(argmax|s) under the same softmax distribution;
+                         useful for entropy diagnostics but NOT log(1). Do NOT
+                         feed into a policy gradient update with greedy rollouts.
         """
         scores = self.forward(node_embeddings, candidates)
+        log_probs_all = torch.log_softmax(scores / temperature, dim=-1)
 
         if greedy:
-            idx = scores.argmax().item()
-            log_prob = torch.tensor(0.0)
+            idx = int(scores.argmax().item())
         else:
-            probs = torch.softmax(scores / temperature, dim=-1)
-            dist = torch.distributions.Categorical(probs)
-            idx = dist.sample().item()
-            log_prob = dist.log_prob(torch.tensor(idx))
+            dist = torch.distributions.Categorical(logits=scores / temperature)
+            idx = int(dist.sample().item())
 
+        log_prob = log_probs_all[idx]
         node_id, action = candidates[idx]
         return node_id, action, log_prob
 
@@ -178,9 +184,16 @@ class PolicyNetwork(nn.Module):
                 break
 
         if gold_idx is None:
-            # Gold action not in candidates — should not happen if data is valid
-            # Return zero loss to avoid crash, but log warning
-            return torch.tensor(0.0, requires_grad=True, device=scores.device)
+            # Gold action not in candidates — this must not happen on clean data.
+            # A detached-zero tensor here looks harmless but silently drops the
+            # example from the gradient graph (no parameter receives a gradient).
+            # Raise instead: if data generation is correct, this is unreachable;
+            # if it fires during training it reveals a generator or engine bug.
+            cand_str = [(nid, a.value) for nid, a in candidates]
+            raise ValueError(
+                f"Gold action ({gold_node_id}, {gold_action.value}) not found in "
+                f"candidates: {cand_str}. Check trajectory validity."
+            )
 
         target = torch.tensor(gold_idx, device=scores.device)
         loss = nn.functional.cross_entropy(scores.unsqueeze(0), target.unsqueeze(0))
@@ -243,12 +256,15 @@ if __name__ == "__main__":
     assert empty_scores.shape == (0,)
     print("  ✓ empty candidates OK")
 
-    # Test gold action not in candidates
-    bad_loss = policy.compute_loss(
-        fake_embeddings, candidates,
-        gold_action=ActionType.MERGE_POWER, gold_node_id=99,
-    )
-    print(f"missing gold loss: {bad_loss.item()}")
-    print("  ✓ missing gold handled gracefully")
+    # Test gold action not in candidates — must raise ValueError (not silent zero)
+    try:
+        policy.compute_loss(
+            fake_embeddings, candidates,
+            gold_action=ActionType.MERGE_POWER, gold_node_id=99,
+        )
+        raise AssertionError("Expected ValueError but no exception was raised")
+    except ValueError as e:
+        print(f"missing gold raises ValueError: {e}")
+        print("  ✓ missing gold raises correctly")
 
     print("\nALL POLICY TESTS PASSED")
