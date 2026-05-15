@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import random
 import argparse
+from collections import Counter
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
@@ -595,6 +596,7 @@ def _is_bare_term(node: ASTNode) -> bool:
 def _replace_node(root: ASTNode, old: ASTNode, new: ASTNode) -> Optional[ASTNode]:
     """Replace old node with new in the tree. Returns new root."""
     if root is old:
+        new._parent = None  # guard: new may have had a parent from a previous context
         return new
     if old.parent is None:
         return None  # can't find old in tree
@@ -638,6 +640,13 @@ class TrajectoryGenerator:
         self.engine = SymbolicEngine()
         self.max_ast_depth = max_ast_depth
         self.max_trajectory_length = max_trajectory_length
+        # Diagnostic: counts how many times each inverse was skipped because
+        # the corresponding forward action wasn't in engine.get_candidates().
+        # Non-zero entries reveal inverse ops that produce engine-invisible states.
+        # TODO(perf #2): _pick_and_apply_inverse clones N×K ASTs per backward step.
+        #   Refactor: run applicability predicates first (no clone), clone only
+        #   survivors. ~10x speedup on deep trees; defer until 1M-traj scale.
+        self.inverse_skip_counts: Counter = Counter()
 
     def generate_one(self, canonical_ast: ASTNode, trajectory_id: str) -> Optional[Trajectory]:
         """Generate one backward trajectory from a canonical polynomial.
@@ -673,6 +682,7 @@ class TrajectoryGenerator:
             candidate_pairs = [[nid, a.value] for nid, _, a in candidates]
 
             if not any(a.value == fwd_action.value for _, _, a in candidates):
+                self.inverse_skip_counts[inv_name] += 1
                 continue  # skip this step, try next inverse
 
             # Check depth constraint
@@ -807,6 +817,21 @@ def generate_dataset(
             failed += 1
 
     print(f"\nGenerated: {len(trajectories)}, Failed: {failed}")
+
+    # Diagnostic: report which inverse ops were skipped due to missing forward action.
+    # Non-zero counts = states produced by that inverse where engine couldn't find
+    # the corresponding forward action — potential engine gap source.
+    if gen.inverse_skip_counts:
+        import sys
+        total_skips = sum(gen.inverse_skip_counts.values())
+        print(f"\n[diag] inverse_skip_counts (total={total_skips}):", file=sys.stderr)
+        for inv, cnt in sorted(gen.inverse_skip_counts.items(), key=lambda x: -x[1]):
+            print(f"  {inv:<35s}  {cnt:6d}", file=sys.stderr)
+    else:
+        import sys
+        print("\n[diag] inverse_skip_counts: all zeros (engine covers all inverse ops)",
+              file=sys.stderr)
+
     return trajectories
 
 

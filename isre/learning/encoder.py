@@ -52,7 +52,10 @@ class ASTEncoder(nn.Module):
 
         # Discrete value embeddings (not continuous projection)
         self.coeff_embedding = nn.Embedding(NUM_COEFF_VALUES, hidden_dim)  # for NUMBER nodes
-        self.exp_embedding = nn.Embedding(NUM_EXP_VALUES, hidden_dim)      # reusable if needed
+        # exp_embedding: reserved for future use (e.g. POW exponent as discrete token).
+        # Currently not wired into _value_embedding — POW nodes take the zero-embedding path.
+        # TODO: wire exp_embedding for Pow exponent nodes before v2 encoder experiments.
+        self.exp_embedding = nn.Embedding(NUM_EXP_VALUES, hidden_dim)
 
         # Variable name embedding (v1: single variable x, but extensible)
         self.var_embedding = nn.Embedding(4, hidden_dim)  # x, y, z, other
@@ -90,7 +93,11 @@ class ASTEncoder(nn.Module):
         """
         device = self.device
 
-        # ── Step 0: collect nodes in post-order (leaves first) ────
+        # ── Step 0: collect nodes ─────────────────────────────────
+        # node_to_id assigns unique stable IDs (preorder indices) to each node.
+        # Traversal for message passing is postorder (leaves before parents) — correct
+        # for bottom-up GRU. The ID scheme (preorder) is independent of traversal order;
+        # lookup is by object identity, so IDs are consistent across rounds.
         postorder: List[ASTNode] = list(ast.iter_postorder())
         node_to_id = {node: i for i, node in enumerate(ast.iter_preorder())}
         num_nodes = len(postorder)
@@ -109,6 +116,9 @@ class ASTEncoder(nn.Module):
         # ── Step 2: multi-round bottom-up message passing ─────────
         # Each round: propagate information one level up the tree.
         # After N rounds, root sees information from depth N.
+        # TODO(perf): h_new = h.clone() allocates O(N×rounds) tensors.
+        #   Replace with double-buffer: pre-allocate h_new once, use h_new.copy_(h)
+        #   at start of each round. Minor at current scale (<200 nodes/tree).
         for round_idx in range(self.num_rounds):
             h_new = h.clone()
 
