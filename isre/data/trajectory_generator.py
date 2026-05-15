@@ -713,6 +713,10 @@ class TrajectoryGenerator:
         inverse_names: List[str] = []
         used_once: set = set()
         prev_inverse: Optional[str] = None
+        # All exprs seen so far in this backward chain (including canonical start).
+        # Used to detect forward cycles: if applying fwd_action leads back to any
+        # previously visited state, this step creates a cycle in the forward trajectory.
+        chain_exprs: set = {current.to_expr()}
 
         for step_idx in range(self.rng.randint(1, self.max_trajectory_length)):
             result = self._pick_and_apply_inverse(current, prev_inverse, used_once)
@@ -722,6 +726,14 @@ class TrajectoryGenerator:
             inv_name, new_root, fwd_node_id = result
             fwd_action = self._get_forward_action(inv_name)
 
+            # Guard: inverse must actually change the expression.
+            # If new_root has the same expr as current, two consecutive forward states
+            # will be identical (cycle). Happens when e.g. SHUFFLE produces the same
+            # child order as before (50% chance for 2-child nodes).
+            if new_root.to_expr() == current.to_expr():
+                self.inverse_skip_counts[inv_name + "_INV_NOOP"] += 1
+                continue
+
             # Validate: forward action must exist in candidates of scrambled state
             candidates = self.engine.get_candidates(new_root)
             # Store full (node_id, action_name) pairs — not deduplicated
@@ -730,6 +742,28 @@ class TrajectoryGenerator:
             if not any(a.value == fwd_action.value for _, _, a in candidates):
                 self.inverse_skip_counts[inv_name] += 1
                 continue  # skip this step, try next inverse
+
+            # Guard: applying the forward action must (a) not be a no-op and
+            # (b) not return to a state EARLIER than current in the backward chain.
+            #
+            # For a correct inverse step: fwd_action(new_root) = current (that's the
+            # point of backward generation). So _after == current is EXPECTED and fine.
+            # What we want to block: _after == some_state_before_current, which creates
+            # a forward cycle A→B→A where A appeared before current in the chain.
+            #
+            # chain_exprs - {current.to_expr()} = states strictly before current.
+            _test = new_root.clone()
+            _test.mark_dirty()
+            _test._rebuild_parents()
+            _after = self.engine.apply(_test, fwd_node_id, fwd_action)
+            _after_expr = _after.to_expr()
+            if _after_expr == new_root.to_expr():
+                self.inverse_skip_counts[inv_name + "_NOOP"] += 1
+                continue  # no-op: skip to prevent trivial cycle
+            _earlier = chain_exprs - {current.to_expr()}
+            if _after_expr in _earlier:
+                self.inverse_skip_counts[inv_name + "_CYCLE"] += 1
+                continue  # would cycle back to a state before current
 
             # Check depth constraint
             if _max_depth(new_root) > self.max_ast_depth:
@@ -744,6 +778,7 @@ class TrajectoryGenerator:
             inverse_names.append(inv_name)
 
             current = new_root
+            chain_exprs.add(new_root.to_expr())
             prev_inverse = inv_name
 
             if inv_name in ONCE_PER_EXPRESSION:
