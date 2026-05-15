@@ -169,7 +169,7 @@ def extract_candidates(step):
     for item in raw:
         if isinstance(item,dict): out.append({"node_id":item.get("node_id","?"),"action":normalize_action_name(item.get("action",item))})
         elif isinstance(item,(list,tuple)) and len(item)>=2: out.append({"node_id":item[0],"action":normalize_action_name(item[1])})
-        else: out.append({"node_id":step.get("gold_node_id","?"),"action":normalize_action_name(item)})
+        else: raise ValueError(f"extract_candidates: unexpected item format {type(item)}: {item!r}")
     return out
 
 def compute_ranks(scores):
@@ -219,8 +219,14 @@ def render_trajectory(traj,pred,output_dir,source_path,env):
                 "score":f"{scores[i]:.4f}" if scores[i] is not None else "-",
                 "rank":ranks[i],"is_gold":ig,"is_top":ti==i})
         rem=max(0,int(traj.get("difficulty",len(traj.get("steps",[]))))-idx-1)
+        gold_indices=[i for i,c in enumerate(table) if c["is_gold"]]
+        gold_rank_local=ranks[gold_indices[0]] if gold_indices else "?"
+        gold_rank_pred=sp.get("gold_rank","?") if sp else "?"
+        if sp and gold_rank_pred!="?" and gold_rank_local!="?" and str(gold_rank_pred)!=str(gold_rank_local):
+            import warnings
+            warnings.warn(f"step {idx}: gold_rank mismatch — predictions say {gold_rank_pred}, local compute says {gold_rank_local}. Candidates may be stale.")
         metrics={"complexity":step.get("complexity","?"),"remaining_steps":rem,
-            "gold_rank":sp.get("gold_rank","?") if sp else "?",
+            "gold_rank":gold_rank_local,
             "changed_nodes":len(changed)}
         steps_html.append({"step_num":idx+1,"expr":expr,"ast_svg":svg,
             "candidates_table":table,"metrics":metrics,"gold_action":gold_a,

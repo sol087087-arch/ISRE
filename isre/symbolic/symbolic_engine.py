@@ -137,53 +137,81 @@ class SymbolicEngine:
         return any(c.node_type == NodeType.MUL for c in node.children)
 
     def _can_fold_const(self, node: ASTNode) -> bool:
-        """Add or Mul where ALL children are NUMBER.
+        """Fold numeric children:
+        - ADD: at least 2 NUMBER children (may be mixed with non-numbers)
+        - MUL: ALL children must be NUMBER (mixed MUL fold is out of v1 scope)
         Only NUMBER, not CONST (we don't fold pi + e)."""
         if node.node_type not in (NodeType.ADD, NodeType.MUL):
             return False
         if len(node.children) < 2:
             return False
-        return all(c.node_type == NodeType.NUMBER for c in node.children)
+        num_count = sum(1 for c in node.children if c.node_type == NodeType.NUMBER)
+        # For both ADD and MUL: fold when 2+ NUMBER children present (may be mixed).
+        # MUL(3, 3, x) → MUL(9, x); Add(1, 2, x^4) → Add(x^4, 3).
+        return num_count >= 2
 
     def _can_remove_zero(self, node: ASTNode) -> bool:
-        """Add with at least one zero child."""
-        if node.node_type != NodeType.ADD:
-            return False
-        return any(self._is_zero(c) for c in node.children)
+        """Add with at least one zero child, OR Mul with at least one zero child.
+        Mul(a, 0, b) = 0 — zero absorbs the product."""
+        if node.node_type == NodeType.ADD:
+            return any(self._is_zero(c) for c in node.children)
+        if node.node_type == NodeType.MUL:
+            return any(self._is_zero(c) for c in node.children)
+        return False
 
     def _can_remove_one(self, node: ASTNode) -> bool:
-        """Mul with at least one one child."""
-        if node.node_type != NodeType.MUL:
-            return False
-        return any(self._is_one(c) for c in node.children)
+        """Mul with at least one 1 child, OR Pow(expr, 1) — trivial exponent."""
+        if node.node_type == NodeType.MUL:
+            return any(self._is_one(c) for c in node.children)
+        if node.node_type == NodeType.POW:
+            return (len(node.children) == 2
+                    and self._is_one(node.children[1]))
+        return False
 
     def _can_merge_power(self, node: ASTNode) -> bool:
-        """Mul with 2+ Pow children sharing the same simple base.
-        Simple base = single VARIABLE node (v1 constraint).
-        Exponents must be numeric (NUMBER) — not compound expressions."""
+        """Mul with 2+ power-like children sharing the same simple variable base.
+        Power-like = POW(x, n) with numeric n, OR bare VARIABLE(x) (treated as x^1).
+        v1 constraint: simple variable base only."""
         if node.node_type != NodeType.MUL:
             return False
-        powers = [c for c in node.children if c.node_type == NodeType.POW]
-        if len(powers) < 2:
-            return False
-        # v1: only simple variable bases, numeric exponents
-        first_base = powers[0].children[0]
-        if first_base.node_type != NodeType.VARIABLE:
-            return False
-        return all(
-            p.children[0].node_type == NodeType.VARIABLE
-            and p.children[0].value == first_base.value
-            and p.children[1].node_type == NodeType.NUMBER
-            for p in powers
-        )
+        power_like = self._collect_power_like(node)
+        return len(power_like) >= 2
+
+    def _collect_power_like(self, node: ASTNode):
+        """Return list of (base_var_name, exponent, child_node) for all
+        power-like children of a MUL node (POW(x,n) or bare VARIABLE)."""
+        result = []
+        for c in node.children:
+            if c.node_type == NodeType.VARIABLE:
+                result.append((c.value, 1.0, c))
+            elif (c.node_type == NodeType.POW
+                    and c.children[0].node_type == NodeType.VARIABLE
+                    and c.children[1].node_type == NodeType.NUMBER):
+                try:
+                    exp = float(c.children[1].value)
+                    result.append((c.children[0].value, exp, c))
+                except (ValueError, TypeError):
+                    pass
+        # Only valid if all share the same variable name
+        if not result:
+            return []
+        base = result[0][0]
+        if not all(r[0] == base for r in result):
+            return []
+        return result
 
     def _can_sort_commutative(self, node: ASTNode) -> bool:
-        """Add or Mul whose children are not in canonical order."""
+        """Add or Mul whose children are not in canonical order.
+        ADD and MUL use different sort keys — canonical order differs:
+          ADD: polynomial terms first (high degree → low), constants last.
+          MUL: NUMBER coefficient first, then variable parts by descending degree.
+        """
         if node.node_type not in (NodeType.ADD, NodeType.MUL):
             return False
         if len(node.children) < 2:
             return False
-        keys = [self._sort_key(c) for c in node.children]
+        key_fn = self._sort_key_add if node.node_type == NodeType.ADD else self._sort_key_mul
+        keys = [key_fn(c) for c in node.children]
         return keys != sorted(keys)
 
     # ====================== APPLY FUNCTIONS ======================
@@ -308,28 +336,51 @@ class SymbolicEngine:
         return node
 
     def _apply_fold_const(self, node: ASTNode) -> ASTNode:
-        """Add(2,3) → 5, Mul(2,3) → 6. Folds ALL numeric children."""
-        values = []
-        for child in node.children:
+        """Fold numeric children.
+        ADD: fold all NUMBER children into one, keep non-numbers.
+             Add(1, 2, x^4) → Add(x^4, 3)
+        MUL: fold all children (only called when all are NUMBER).
+             Mul(2, 3) → 6
+        """
+        if node.node_type == NodeType.ADD:
+            nums = [c for c in node.children if c.node_type == NodeType.NUMBER]
+            non_nums = [c for c in node.children if c.node_type != NodeType.NUMBER]
             try:
-                values.append(float(child.value))
+                total = sum(float(n.value) for n in nums)
             except (ValueError, TypeError):
                 return node
-
-        if node.node_type == NodeType.ADD:
-            result_val = sum(values)
-        elif node.node_type == NodeType.MUL:
-            result_val = 1
-            for v in values:
-                result_val *= v
-        else:
+            int_val = int(total) if total == int(total) else total
+            folded = Num(int_val)
+            if not non_nums:
+                return folded
+            # Keep non-numeric children, append folded constant at end
+            node.children = non_nums + [folded]
+            node._rebuild_parents()
             return node
-
-        int_val = int(result_val) if result_val == int(result_val) else result_val
-        return Num(int_val)
+        elif node.node_type == NodeType.MUL:
+            nums = [c for c in node.children if c.node_type == NodeType.NUMBER]
+            non_nums = [c for c in node.children if c.node_type != NodeType.NUMBER]
+            try:
+                product = 1.0
+                for n in nums:
+                    product *= float(n.value)
+            except (ValueError, TypeError):
+                return node
+            int_val = int(product) if product == int(product) else product
+            folded = Num(int_val)
+            if not non_nums:
+                return folded
+            node.children = [folded] + non_nums  # coefficient first
+            node._rebuild_parents()
+            return node
+        return node
 
     def _apply_remove_zero(self, node: ASTNode) -> ASTNode:
-        """Add(x, 0) → x. Removes all zero children."""
+        """Add(x, 0) → x. Removes all zero children from Add.
+        Mul(a, 0, b) → 0. Any zero in Mul absorbs the product."""
+        if node.node_type == NodeType.MUL:
+            return Num(0)
+        # ADD case
         new_children = [c for c in node.children if not self._is_zero(c)]
         if len(new_children) == 0:
             return Num(0)
@@ -340,7 +391,10 @@ class SymbolicEngine:
         return node
 
     def _apply_remove_one(self, node: ASTNode) -> ASTNode:
-        """Mul(1, x) → x. Removes all one children."""
+        """Mul(1, x) → x. Pow(x, 1) → x."""
+        if node.node_type == NodeType.POW:
+            return node.children[0].clone()
+        # MUL case
         new_children = [c for c in node.children if not self._is_one(c)]
         if len(new_children) == 0:
             return Num(1)
@@ -351,24 +405,25 @@ class SymbolicEngine:
         return node
 
     def _apply_merge_power(self, node: ASTNode) -> ASTNode:
-        """Mul(Pow(x,a), Pow(x,b)) → Pow(x, a+b). Merges all matching powers."""
-        powers = [c for c in node.children if c.node_type == NodeType.POW]
-        non_powers = [c for c in node.children if c.node_type != NodeType.POW]
-
-        if len(powers) < 2:
+        """Merge all power-like children (POW(x,n) or VARIABLE(x)) into one Pow.
+        Mul(x, x, 8) → Mul(8, x^2). Mul(x^2, x^3) → x^5.
+        If merged exponent == 1, returns VARIABLE(x) instead of Pow(x,1).
+        """
+        power_like = self._collect_power_like(node)
+        if len(power_like) < 2:
             return node
 
-        # sum exponents (v1: numeric exponents only)
-        total_exp = 0
-        base = powers[0].children[0].clone()
-        for p in powers:
-            try:
-                total_exp += float(p.children[1].value)
-            except (ValueError, TypeError):
-                return node  # non-numeric exponent, bail
+        power_like_nodes = {id(pl[2]) for pl in power_like}
+        non_powers = [c for c in node.children if id(c) not in power_like_nodes]
 
+        base_var = power_like[0][0]
+        total_exp = sum(pl[1] for pl in power_like)
         int_exp = int(total_exp) if total_exp == int(total_exp) else total_exp
-        merged = Pow(base, Num(int_exp))
+
+        if int_exp == 1:
+            merged = Var(base_var)
+        else:
+            merged = Pow(Var(base_var), Num(int_exp))
 
         new_children = non_powers + [merged]
         if len(new_children) == 1:
@@ -379,7 +434,8 @@ class SymbolicEngine:
 
     def _apply_sort_commutative(self, node: ASTNode) -> ASTNode:
         """Sort children of Add/Mul into canonical order."""
-        node.children.sort(key=self._sort_key)
+        key_fn = self._sort_key_add if node.node_type == NodeType.ADD else self._sort_key_mul
+        node.children.sort(key=key_fn)
         node._rebuild_parents()
         return node
 
@@ -437,28 +493,72 @@ class SymbolicEngine:
             return (self._var_key(node.children[1]), coeff, node.children[1])
         return None
 
-    def _sort_key(self, node: ASTNode) -> tuple:
-        """Canonical sort key for commutative children.
-        Order: numbers first, then variables, then complex expressions.
-        Within numbers: by value. Within variables: by name then degree."""
+    def _sort_key_add(self, node: ASTNode) -> tuple:
+        """Sort key for ADD children.
+        Canonical ADD order: high-degree terms first, constants last.
+          x^4 term → x^2 term → x term → constant
+
+        Tier 0 (first): polynomial terms, by descending degree (-deg sorts asc).
+        Tier 1 (last):  NUMBER constants.
+        """
         if node.node_type == NodeType.NUMBER:
-            try:
-                return (0, float(node.value), "")
-            except ValueError:
-                return (0, 0, node.value)
+            return (1, 0.0, node.value)
         if node.node_type == NodeType.VARIABLE:
-            return (1, 0, node.value)
+            return (0, -1.0, node.value)
         if node.node_type == NodeType.POW:
             try:
                 deg = float(node.children[1].value)
             except (ValueError, TypeError, IndexError):
-                deg = 0
-            return (2, deg, "")
+                deg = 0.0
+            return (0, -deg, "")
         if node.node_type == NodeType.MUL:
-            # Mul(coeff, var_part) — sort by var_part then coeff
-            return (3, 0, str(node._structural_tuple()))
-        # everything else
-        return (9, 0, str(node._structural_tuple()))
+            deg = self._mul_degree(node)
+            return (0, -deg, str(node._structural_tuple()))
+        return (0, 0.0, str(node._structural_tuple()))
+
+    def _sort_key_mul(self, node: ASTNode) -> tuple:
+        """Sort key for MUL children.
+        Canonical MUL order: NUMBER coefficient first, then variable parts
+        by descending degree.
+          (-1 * x)     → NUMBER(-1) before VARIABLE(x)
+          (8 * (x)^2)  → NUMBER(8)  before POW(x,2)
+          (8 * x * x)  → NUMBER(8)  before VARIABLE, VARIABLE
+
+        Tier 0 (first): NUMBER.
+        Tier 1 (rest):  VARIABLE/POW/MUL by descending degree.
+        """
+        if node.node_type == NodeType.NUMBER:
+            return (0, 0.0, node.value)
+        if node.node_type == NodeType.VARIABLE:
+            return (1, -1.0, node.value)
+        if node.node_type == NodeType.POW:
+            try:
+                deg = float(node.children[1].value)
+            except (ValueError, TypeError, IndexError):
+                deg = 0.0
+            return (1, -deg, "")
+        if node.node_type == NodeType.MUL:
+            deg = self._mul_degree(node)
+            return (1, -deg, str(node._structural_tuple()))
+        return (1, 0.0, str(node._structural_tuple()))
+
+    # _sort_key kept as alias for any external callers; prefer _sort_key_add/_sort_key_mul
+    def _sort_key(self, node: ASTNode) -> tuple:
+        return self._sort_key_add(node)
+
+    def _mul_degree(self, node: ASTNode) -> float:
+        """Extract polynomial degree from Mul(coeff, var_part). Returns 0 if unrecognized."""
+        if len(node.children) == 2 and node.children[0].node_type == NodeType.NUMBER:
+            var_part = node.children[1]
+            if var_part.node_type == NodeType.VARIABLE:
+                return 1.0
+            if (var_part.node_type == NodeType.POW
+                    and var_part.children[1].node_type == NodeType.NUMBER):
+                try:
+                    return float(var_part.children[1].value)
+                except (ValueError, TypeError):
+                    pass
+        return 0.0
 
 
 # ====================== TESTS ======================

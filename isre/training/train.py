@@ -289,7 +289,7 @@ class Trainer:
         if val_metrics.accuracy >= threshold and self.curriculum_max_difficulty < 6:
             old = self.curriculum_max_difficulty
             self.curriculum_max_difficulty = min(6, self.curriculum_max_difficulty + 1)
-            print(f"  CURRICULUM: difficulty {old} → {self.curriculum_max_difficulty}")
+            print(f"  CURRICULUM: difficulty {old} -> {self.curriculum_max_difficulty}")
 
 
 # ====================== MAIN ======================
@@ -402,6 +402,9 @@ def train(
 
 
 if __name__ == "__main__":
+    import sys
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="ISRE Training")
     parser.add_argument("--data", default="trajectories", help="Trajectory directory")
     parser.add_argument("--epochs", type=int, default=20)
