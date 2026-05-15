@@ -554,6 +554,46 @@ def inverse_introduce_redundant_zero(rng: random.Random, root: ASTNode, node: AS
     return (new_root, fwd_id) if fwd_id is not None else None
 
 
+def inverse_shuffle_commutative(
+    rng: random.Random, root: ASTNode, node: ASTNode, node_id: int
+) -> InverseResult:
+    """Shuffle children of ADD/MUL to be out of canonical sorted order.
+
+    Forward: SORT_COMMUTATIVE.
+
+    Applicability guard: node must be ADD or MUL with ≥ 2 children and at
+    least 2 *distinct* child expressions (otherwise every permutation is
+    semantically equivalent and the engine may not recognise any order as
+    'unsorted').
+
+    After shuffling we do NOT check whether the result is already sorted —
+    the validation step in generate_one (engine.get_candidates → SORT_COMMUTATIVE
+    present?) filters that case and increments inverse_skip_counts.
+    For a 2-child node with distinct children exactly 1/2 shuffles land on
+    sorted order; for 3+ children the miss rate drops quickly.
+    """
+    if node.node_type not in (NodeType.ADD, NodeType.MUL):
+        return None
+    if len(node.children) < 2:
+        return None
+    # Require ≥ 2 distinct child expressions — otherwise shuffle is a no-op.
+    exprs = [c.to_expr() for c in node.children]
+    if len(set(exprs)) < 2:
+        return None
+
+    # Shuffle in-place (node is already a clone from _pick_and_apply_inverse).
+    children = list(node.children)
+    rng.shuffle(children)
+    node.children = children
+    # _rebuild_parents on node: children's parent pointers all still point to node
+    # (reorder doesn't change parent), so this is a no-op for parent links but
+    # also harmless — call it anyway to stay consistent with other inverses.
+    node._rebuild_parents()
+    root.mark_dirty()
+
+    return (root, node_id)
+
+
 # ====================== INVERSE TRANSFORM REGISTRY ======================
 
 INVERSE_REGISTRY: List[Tuple[str, Callable, ActionType, float]] = [
@@ -566,8 +606,9 @@ INVERSE_REGISTRY: List[Tuple[str, Callable, ActionType, float]] = [
     ("UNFLATTEN_ADD",           inverse_unflatten_add,             ActionType.FLATTEN_ADD,    0.10),
     ("UNFLATTEN_MUL",           inverse_unflatten_mul,             ActionType.FLATTEN_MUL,    0.10),
     ("UNFOLD_CONST",            inverse_unfold_const,              ActionType.FOLD_CONST,     0.05),
-    ("INTRODUCE_REDUNDANT_ONE", inverse_introduce_redundant_one,   ActionType.REMOVE_ONE,     0.025),
-    ("INTRODUCE_REDUNDANT_ZERO",inverse_introduce_redundant_zero,  ActionType.REMOVE_ZERO,    0.025),
+    ("INTRODUCE_REDUNDANT_ONE", inverse_introduce_redundant_one,   ActionType.REMOVE_ONE,          0.025),
+    ("INTRODUCE_REDUNDANT_ZERO",inverse_introduce_redundant_zero,  ActionType.REMOVE_ZERO,         0.025),
+    ("SHUFFLE_COMMUTATIVE",     inverse_shuffle_commutative,       ActionType.SORT_COMMUTATIVE,    0.03),
 ]
 
 # Compositional constraints: (prev_inverse, current_inverse) pairs that are forbidden
@@ -577,7 +618,12 @@ FORBIDDEN_SEQUENCES = {
 }
 
 # Max once per expression
-ONCE_PER_EXPRESSION = {"INTRODUCE_REDUNDANT_ONE", "INTRODUCE_REDUNDANT_ZERO", "UNFOLD_CONST"}
+ONCE_PER_EXPRESSION = {
+    "INTRODUCE_REDUNDANT_ONE",
+    "INTRODUCE_REDUNDANT_ZERO",
+    "UNFOLD_CONST",
+    "SHUFFLE_COMMUTATIVE",   # one shuffle per trajectory is enough; prevents dominance
+}
 
 
 # ====================== HELPERS ======================
