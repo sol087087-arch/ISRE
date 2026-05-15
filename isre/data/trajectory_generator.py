@@ -663,14 +663,11 @@ def _max_depth(root: ASTNode) -> int:
     return max(n.depth for n in root.iter_preorder())
 
 
-def _augment_commutative(rng: random.Random, root: ASTNode) -> ASTNode:
-    """50% chance to shuffle children of commutative nodes. Data augmentation, not a trajectory step."""
-    for node in root.iter_preorder():
-        if node.node_type in (NodeType.ADD, NodeType.MUL) and len(node.children) >= 2:
-            if rng.random() < 0.5:
-                rng.shuffle(node.children)
-                node._rebuild_parents()
-    return root
+# _augment_commutative — DEAD CODE, not called anywhere.
+# Original design: shuffle commutative children of the initial scrambled state
+# as data augmentation. Superseded by SHUFFLE_COMMUTATIVE inverse operation,
+# which instead inserts an explicit (shuffled_state, SORT_COMMUTATIVE) trajectory
+# step — unambiguous training signal, no gold-action variance issues.
 
 
 # ====================== TRAJECTORY GENERATOR ======================

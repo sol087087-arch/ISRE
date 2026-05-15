@@ -18,25 +18,35 @@ Greedy — нижняя планка по interpretability. BFS — верхня
 
 ## Методологические решения (явные)
 
-### Параметрический бюджет: matched-interpretability, не matched-params
+### Параметрический бюджет: реальные числа от кода
 
-Encoder одинаковый для MLP и KAN (~417K параметров).
-Policy head: ~58K для обоих.
-Это сравнение в режиме **matched-interpretability** — обе головы сжаты до одного
-bottleneck, чтобы KAN мог оставаться читаемым.
+Спека §2.6 называла «35–40M encoder, 8–10M policy» — это не совпадает с кодом.
+Реальный подсчёт (encoder=TreeGRU 6 rounds + policy MLP/KAN):
 
-Это *не* ответ на вопрос "что лучше при одинаковом бюджете в 100M параметров".
-Это ответ на вопрос "даёт ли KAN-голова сопоставимую accuracy при сопоставимом
-числе параметров, и при этом интерпретируемые активации?"
+| hidden_dim | encoder | policy_mlp | total |
+|-----------|---------|------------|-------|
+| 128 (prototype run) | 0.42M | 0.15M | **0.57M** |
+| 256 | 1.65M | 0.56M | **2.21M** |
+| 512 | 6.58M | 2.17M | **8.75M** |
+
+Реальная прогрессия:
+- Prototype: hidden=128 → 0.57M
+- Research baseline: hidden=512 → 8.75M
+- Scale-up: hidden=1024 → ~35M
+- Upper bound: hidden=2048 → ~140M
+
+Experiment 1 проводится при **hidden=512 (8.75M)**. Это «10M prototype» из спеки.
+matched-interpretability: encoder одинаковый для MLP и KAN. Каждая архитектура
+использует один и тот же 512-dim GRU output.
 
 **Ablation: четыре строчки, не одна.** MLP-narrow и MLP-shallow отвечают на разные подвопросы:
 
-| Вариант | Как matched | Что тестирует |
-|---------|-------------|---------------|
-| KAN | — | — |
-| MLP-full | тот же hidden\_dim и depth что у основного MLP | верхняя планка MLP |
-| MLP-narrow | уменьшен hidden\_dim до matched-params с KAN | KAN выигрывает за счёт expressiveness per param? |
-| MLP-shallow | уменьшена глубина до matched-params с KAN | KAN выигрывает за счёт inductive bias на малой глубине? |
+| Вариант | Параметры policy head | Что тестирует |
+|---------|----------------------|---------------|
+| KAN (hand-crafted features) | ~0.07M | interpretable φ_i на ~25 scalar inputs |
+| MLP-full (hidden=512) | 2.17M | верхняя планка MLP |
+| MLP-narrow (hidden=128) | 0.15M | matched-params с KAN |
+| MLP-shallow (hidden=512, 1 layer) | ~0.27M | inductive bias vs depth |
 
 Без MLP-narrow и MLP-shallow critic выберет удобную интерпретацию.
 С обоими — каждый подвопрос закрыт отдельной строчкой.
@@ -157,13 +167,37 @@ KAN-specific: визуализировать activation curves φ\_i для то
 
 ---
 
+### KAN архитектурная развилка (решить до day 8)
+
+Текущий KAN в policy.py: Linear(input→32) bottleneck + заглушка.
+**Проблема:** GRU-энкодер уже перемешал фичи в 512-dim вектор. φ_i KAN будут
+функциями от мутных комбинаций, не от структурных признаков. Interpretability убита до KAN.
+
+| Вариант | Вход KAN | φ_i читаемы | Контекст поддерева |
+|---------|----------|------------|-------------------|
+| Текущий (bottleneck) | GRU(512)→Linear(32) | Нет | Да |
+| **Hand-crafted features** | ~25 скаляров | **Да** | Нет |
+| Grouped | GRU(64)+features(25) | Частично | Частично |
+
+**Решение:** hand-crafted features для KAN (~25d: node_type_onehot, depth,
+subtree_size, parent_type_onehot, action_type_onehot). MLP остаётся с GRU.
+Сравнение честное: "MLP с контекстом поддерева vs KAN с читаемыми признаками".
+
+**Day 7 mini-experiment (обязателен):** KAN на синтетических scalar входах
+перед разворачиванием на реальных данных — страховка против "день 9 ничего нет".
+
+---
+
 ## Текущий статус
 
-- [x] Генератор 50K траекторий (все 9 inverse transforms, покрытие всех 9 action types)
-- [x] Baselines: random, greedy
+- [x] Engine: 7 багов ENGINE_GAP исправлены (0% ENGINE_GAP на n=500)
+- [x] Датасет v4 (в процессе): 50K, все 10 action types вкл. SORT_COMMUTATIVE (14.3%), 0% cycles
+- [x] Baselines: random 98.8%±0.2%, greedy 100% (n=1000, новый датасет)
+- [x] Policy: ValueError на missing gold; корректный log_prob в greedy
 - [ ] BFS baseline + измерение реального solve rate
-- [x] MLP train run: эпоха 1 — acc 85.9% train / 74.2% val (идёт на GPU)
-- [ ] KAN head (реализовать, заменить заглушку в policy.py)
-- [ ] 3-seed runs для MLP и KAN
-- [ ] Evaluation/rollout script (success_rate на val)
-- [ ] Activation visualization для KAN
+- [ ] MLP train run на датасете v4 (предыдущий на v2 — невалидный)
+- [ ] Day 7: KAN mini-experiment на синтетических scalar inputs
+- [ ] KAN head: реализовать с hand-crafted features (не GRU bottleneck)
+- [ ] 5-seed runs для MLP-full, MLP-narrow, MLP-shallow, KAN
+- [ ] Evaluation/rollout script (success_rate, loop_rate, step_overhead)
+- [ ] Activation visualization для KAN φ_i
