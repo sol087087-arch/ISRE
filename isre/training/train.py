@@ -145,6 +145,14 @@ class EpochMetrics:
         return "\n".join(lines)
 
 
+# ====================== EXPERIMENT CAMPAIGN ======================
+# The fixed seed set for the MLP-vs-KAN statistics. NOT [0,1,2,3,4]:
+# 42 is the de-facto ML standard (handy as the "casual check" seed) and
+# breaking the consecutive run avoids any accidental structure. Primary
+# run = seed 0; replicates = the rest. Quoted verbatim in the paper.
+CAMPAIGN_SEEDS = [0, 1, 2, 3, 42]
+
+
 # ====================== CURRICULUM ======================
 #
 # Temperature-weighted sampling, NOT a hard 1->6 stage filter.
