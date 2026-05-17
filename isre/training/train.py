@@ -168,24 +168,58 @@ class EpochMetrics:
 # function of (epoch, total_epochs) -> identical across seeds.
 
 
+CURRICULUM_LO = 1.0       # start target (genuinely easy-skewed early)
+CURRICULUM_SIGMA = 2.0    # narrow enough for a sharp early low-diff peak
+CURRICULUM_TRUNC = 3.0    # hard cutoff at |diff-target| > TRUNC*sigma
+CURRICULUM_HI = 7.0       # target ramp CAP. NOT max_diff.
+# Why cap at 7, not max_diff (~11): the v6 population is mid-skewed and
+# the tail is thin (d7:1.4%, d11:0.05%). Ramping target onto near-empty
+# d10-11 bins centred the Gaussian where there is no population; the
+# convolution (weight rising toward 11) x (population falling toward 11)
+# produced a BIMODAL final-epoch histogram (verify_curriculum check 1
+# failed at e20: peak d6, dip d7, second bump d9). With target capped at
+# 7 and sigma 2, the 3sigma window late = [~1,13] still fully covers the
+# d7-11 tail — in fact d7 sits AT the target (weight 1.0), so the tail is
+# trained MORE strongly than when target overshot to 11. Restores the
+# originally-specified "ramp 1 -> 6/7" intent.
+
+
 def curriculum_target(epoch: int, total_epochs: int, max_diff: int,
-                      lo: float = 1.5) -> float:
-    """Deterministic difficulty target. Ramps lo -> max_diff over the run,
-    reaching max_diff by ~80% of epochs so the final fifth trains on the
-    full natural distribution (incl. the diff 7-10 tail)."""
+                      lo: float = CURRICULUM_LO,
+                      hi: float = CURRICULUM_HI) -> float:
+    """Deterministic difficulty target. Ramps lo -> min(hi, max_diff)
+    over ~80% of epochs. Capped (see CURRICULUM_HI) so the Gaussian never
+    centres on the near-empty difficulty tail."""
+    top = min(float(max_diff), hi)
     if total_epochs <= 1:
-        return float(max_diff)
+        return top
     ramp_end = max(1, int(0.8 * total_epochs))
     progress = min(1.0, (epoch - 1) / ramp_end)
-    return lo + (max_diff - lo) * progress
+    return lo + (top - lo) * progress
 
 
 def difficulty_weights(steps: List["TrainingStep"], target: float,
-                       sigma: float = 2.5) -> List[float]:
-    """Gaussian soft weight per step around `target`. Wide sigma keeps both
-    tails represented at every epoch (never a hard cutoff)."""
+                       sigma: float = CURRICULUM_SIGMA,
+                       trunc: float = CURRICULUM_TRUNC) -> List[float]:
+    """TRUNCATED Gaussian soft weight per step around `target`.
+
+    Why truncated (reviewer's methodologically-cleanest option, verified):
+    an untruncated wide Gaussian gave w(diff=10)≈0.003 even at target=1.5,
+    and empirically the epoch-1 sampled histogram PEAKED at diff 3-4
+    (56.8%) rather than being easy-skewed to diff 1-2 (31.3%) — because
+    sigma was wide relative to the 1-4 range and the v6 population is
+    mid-skewed. Hard 3σ truncation removes the far-tail noise EARLY (clean
+    curriculum, no diff-10 extrapolation polluting early KAN signal) while
+    the ramping target guarantees the full tail is covered LATE (cutoff
+    moves up with target; by the final epochs diff 7-10 are in-window).
+    """
     inv = 1.0 / (2.0 * sigma * sigma)
-    return [math.exp(-((s.difficulty - target) ** 2) * inv) for s in steps]
+    cut = trunc * sigma
+    out = []
+    for s in steps:
+        d = s.difficulty - target
+        out.append(0.0 if abs(d) > cut else math.exp(-(d * d) * inv))
+    return out
 
 
 # ====================== TRAINING ======================
@@ -362,10 +396,22 @@ def train(
     max_files: int = None,
     accumulation_steps: int = 8,
     save_dir: str = "checkpoints",
+    seed: int = 0,
 ):
     if device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Device: {device}")
+    print(f"Device: {device}  Seed: {seed}")
+
+    # Global seeding — REQUIRED for the 5-seed campaign to be meaningful.
+    # curriculum_target is already a pure function of epoch (identical
+    # across seeds); seeding makes the curriculum SAMPLING (random.choices)
+    # and weight init / shuffle reproducible: same seed -> identical run,
+    # different seed -> controlled variance (only init+sampling differ,
+    # never the curriculum schedule). Without this, "5 seeds" is undefined.
+    random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
     # ── Load data ──────────────────────────────────────
     print(f"Loading trajectories from {data_dir}...")
@@ -472,6 +518,10 @@ if __name__ == "__main__":
     parser.add_argument("--max-files", type=int, default=None)
     parser.add_argument("--accumulation-steps", type=int, default=8)
     parser.add_argument("--save-dir", default="checkpoints")
+    parser.add_argument("--seed", type=int, default=0,
+                        help="Global seed (random+torch+cuda). The 5-seed "
+                             "campaign varies ONLY this; curriculum schedule "
+                             "stays identical across seeds.")
     args = parser.parse_args()
 
     train(
@@ -485,4 +535,5 @@ if __name__ == "__main__":
         max_files=args.max_files,
         accumulation_steps=args.accumulation_steps,
         save_dir=args.save_dir,
+        seed=args.seed,
     )
