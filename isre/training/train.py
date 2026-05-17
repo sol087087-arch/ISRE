@@ -9,6 +9,7 @@ Usage:
 """
 
 import json
+import math
 import random
 import time
 import argparse
@@ -144,6 +145,49 @@ class EpochMetrics:
         return "\n".join(lines)
 
 
+# ====================== CURRICULUM ======================
+#
+# Temperature-weighted sampling, NOT a hard 1->6 stage filter.
+#
+# Why the old design was a methodological hazard:
+#   - hard filter (diff <= max) -> stepwise distribution shift -> loss
+#     jumps at transitions, not smooth learning.
+#   - cap at 6 -> v6 trajectories with diff 7-10 (BFS-true length) were
+#     NEVER trained -> any eval collapse on long trajectories would be a
+#     CURRICULUM ARTIFACT misread as an architecture weakness, and KAN
+#     phi-curves on depth 7+ would be extrapolation noise, not signal.
+#   - auto-advance keyed on noisy val accuracy -> non-reproducible
+#     curriculum trajectory across the 5 seeds (seeds must differ only
+#     in init/shuffle, not in what data they saw).
+#
+# Replacement: every step keeps a soft weight
+#   w(diff) = exp(-(diff - target(epoch))^2 / (2*sigma^2))
+# target(epoch) ramps deterministically 1.5 -> max_difficulty over the
+# run; sigma is wide so SHORT and LONG tails always retain nonzero weight
+# (no catastrophic forgetting, no untrained tail). Schedule is a pure
+# function of (epoch, total_epochs) -> identical across seeds.
+
+
+def curriculum_target(epoch: int, total_epochs: int, max_diff: int,
+                      lo: float = 1.5) -> float:
+    """Deterministic difficulty target. Ramps lo -> max_diff over the run,
+    reaching max_diff by ~80% of epochs so the final fifth trains on the
+    full natural distribution (incl. the diff 7-10 tail)."""
+    if total_epochs <= 1:
+        return float(max_diff)
+    ramp_end = max(1, int(0.8 * total_epochs))
+    progress = min(1.0, (epoch - 1) / ramp_end)
+    return lo + (max_diff - lo) * progress
+
+
+def difficulty_weights(steps: List["TrainingStep"], target: float,
+                       sigma: float = 2.5) -> List[float]:
+    """Gaussian soft weight per step around `target`. Wide sigma keeps both
+    tails represented at every epoch (never a hard cutoff)."""
+    inv = 1.0 / (2.0 * sigma * sigma)
+    return [math.exp(-((s.difficulty - target) ** 2) * inv) for s in steps]
+
+
 # ====================== TRAINING ======================
 
 class Trainer:
@@ -154,12 +198,10 @@ class Trainer:
         lr: float = 1e-3,
         weight_decay: float = 1e-4,
         device: str = "cpu",
-        curriculum_max_difficulty: int = 3,
     ):
         self.encoder = encoder.to(device)
         self.policy = policy.to(device)
         self.device = device
-        self.curriculum_max_difficulty = curriculum_max_difficulty
 
         # Single optimizer for both encoder and policy
         self.optimizer = optim.AdamW(
@@ -174,22 +216,39 @@ class Trainer:
     def train_epoch(
         self,
         steps: List[TrainingStep],
+        epoch: int,
+        total_epochs: int,
         accumulation_steps: int = 8,
     ) -> EpochMetrics:
-        """Train one epoch over all steps."""
+        """Train one epoch with temperature-weighted curriculum sampling."""
         self.encoder.train()
         self.policy.train()
 
         metrics = EpochMetrics()
         self.optimizer.zero_grad()
 
-        # Filter by curriculum
-        filtered = [s for s in steps if s.difficulty <= self.curriculum_max_difficulty]
-        if not filtered:
-            print(f"  WARNING: no steps with difficulty ≤ {self.curriculum_max_difficulty}")
+        if not steps:
+            print("  WARNING: no training steps")
             return metrics
 
-        random.shuffle(filtered)
+        # Temperature-weighted curriculum: soft Gaussian weight around a
+        # deterministic per-epoch difficulty target. No hard cutoff, no
+        # untrained tail, schedule reproducible across seeds.
+        max_diff = max(s.difficulty for s in steps)
+        target = curriculum_target(epoch, total_epochs, max_diff)
+        weights = difficulty_weights(steps, target)
+        # Resample an epoch-sized multiset (with replacement) by weight.
+        filtered = random.choices(steps, weights=weights, k=len(steps))
+
+        # Verification instrumentation: histogram of SAMPLED difficulties,
+        # so the ramp is auditable (smooth shift, tail always covered).
+        sampled_hist: Dict[int, int] = defaultdict(int)
+        for s in filtered:
+            sampled_hist[s.difficulty] += 1
+        hist_str = " ".join(f"d{d}:{sampled_hist[d]}"
+                             for d in sorted(sampled_hist))
+        print(f"  CURRICULUM e{epoch}/{total_epochs} target={target:.2f} "
+              f"max_diff={max_diff} sampled[{hist_str}]")
 
         for i, step in enumerate(filtered):
             loss, top1_correct, gold_rank = self._train_step(step)
@@ -284,12 +343,10 @@ class Trainer:
 
         return metrics
 
-    def maybe_advance_curriculum(self, val_metrics: EpochMetrics, threshold: float = 0.7):
-        """Advance curriculum if accuracy is high enough."""
-        if val_metrics.accuracy >= threshold and self.curriculum_max_difficulty < 6:
-            old = self.curriculum_max_difficulty
-            self.curriculum_max_difficulty = min(6, self.curriculum_max_difficulty + 1)
-            print(f"  CURRICULUM: difficulty {old} -> {self.curriculum_max_difficulty}")
+    # maybe_advance_curriculum REMOVED: noisy-val-accuracy auto-advance made
+    # the curriculum trajectory non-reproducible across seeds and capped at
+    # diff 6 (untrained 7-10 tail). Replaced by deterministic
+    # curriculum_target(epoch) used inside train_epoch.
 
 
 # ====================== MAIN ======================
@@ -355,7 +412,6 @@ def train(
         policy=policy,
         lr=lr,
         device=device,
-        curriculum_max_difficulty=3,  # start easy (spec: phase 1)
     )
 
     # ── Training loop ──────────────────────────────────
@@ -368,7 +424,8 @@ def train(
 
         # Train
         train_metrics = trainer.train_epoch(
-            train_steps, accumulation_steps=accumulation_steps,
+            train_steps, epoch=epoch, total_epochs=epochs,
+            accumulation_steps=accumulation_steps,
         )
         elapsed = time.time() - t0
         print(train_metrics.report(epoch, elapsed))
@@ -382,8 +439,8 @@ def train(
         # LR schedule
         trainer.scheduler.step(val_metrics.avg_loss)
 
-        # Curriculum advancement
-        trainer.maybe_advance_curriculum(val_metrics)
+        # (curriculum is deterministic per-epoch inside train_epoch — no
+        #  noisy-signal advancement step here anymore)
 
         # Save best
         if val_metrics.avg_loss < best_val_loss:
@@ -394,7 +451,6 @@ def train(
                 "policy": policy.state_dict(),
                 "optimizer": trainer.optimizer.state_dict(),
                 "val_loss": best_val_loss,
-                "curriculum": trainer.curriculum_max_difficulty,
             }, save_path / "best.pt")
             print(f"  SAVED best model (val_loss={best_val_loss:.4f})")
 
