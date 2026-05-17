@@ -698,12 +698,26 @@ class TrajectoryGenerator:
         #   survivors. ~10x speedup on deep trees; defer until 1M-traj scale.
         self.inverse_skip_counts: Counter = Counter()
 
-    def generate_one(self, canonical_ast: ASTNode, trajectory_id: str) -> Optional[Trajectory]:
-        """Generate one backward trajectory from a canonical polynomial.
-        
-        Records training pairs directly during backward pass.
-        No forward replay — avoids node_id drift between inverse/forward.
-        
+    def generate_one(
+        self,
+        canonical_ast: ASTNode,
+        trajectory_id: str,
+        gold_mode: str = "bfs",
+    ) -> Optional[Trajectory]:
+        """Generate one trajectory from a canonical polynomial.
+
+        gold_mode:
+          "bfs"      — gold = BFS-provably-optimal forward path (default,
+                       internally consistent by construction).
+          "recorded" — gold = reverse of the backward inverse sequence (the
+                       NAIVE method; deliberately retains its 7.22% broken
+                       terminal labels). Used ONLY for the controlled
+                       ablation arm CE-on-recorded-teacher vs CE-on-BFS.
+
+        The backward scramble is IDENTICAL across modes for a given rng
+        state, so per-index seeding yields perfectly paired arms (same
+        scrambled start, only gold differs).
+
         Steps are stored in forward order (most scrambled first → canonical).
         """
 
@@ -793,14 +807,43 @@ class TrajectoryGenerator:
 
         scrambled = backward_records[-1][0]
 
-        # ── C-BFS gold ────────────────────────────────────────────────────
+        if gold_mode == "recorded":
+            # NAIVE arm (ablation only): gold = reverse of inverse sequence.
+            # Deliberately retains the 7.22% internally-inconsistent terminal
+            # labels — that contamination IS the ablation's independent
+            # variable. Do NOT add consistency filtering here.
+            steps: List[TrajectoryStep] = []
+            for state, fwd_action, fwd_node_id, cand_actions in reversed(backward_records):
+                steps.append(TrajectoryStep(
+                    state=state.to_dict(),
+                    state_expr=state.to_expr(),
+                    candidate_actions=cand_actions,
+                    gold_action=fwd_action.value,
+                    gold_node_id=fwd_node_id,
+                    complexity=state.complexity(),
+                ))
+            return Trajectory(
+                trajectory_id=trajectory_id,
+                canonical_expr=canonical_ast.to_expr(),
+                canonical_ast=canonical_ast.to_dict(),
+                original_expr=scrambled.to_expr(),
+                original_ast=scrambled.to_dict(),
+                steps=steps,
+                difficulty=len(steps),
+                inverse_sequence=inverse_names,
+            )
+
+        if gold_mode != "bfs":
+            raise ValueError(f"unknown gold_mode: {gold_mode!r}")
+
+        # ── C-BFS gold (default) ─────────────────────────────────────────
         # gold = provably-minimal forward path scrambled -> canonical, found
         # by BFS over engine states. Replaces the old "reverse the inverse
         # action sequence" gold, which produced internally-inconsistent
         # labels whenever an inverse's forward needed >1 engine action
         # (FACTOR_* -> EXPAND etc.; 7.3% of v5 was broken — see POSTMORTEM).
         #
-        # The backward pass above is now purely a SCRAMBLER: it produces a
+        # The backward pass above is purely a SCRAMBLER: it produces a
         # diverse, valid non-canonical start (and inverse_sequence as
         # provenance). Gold correctness no longer depends on inverse/forward
         # symmetry — BFS guarantees the gold sequence reaches canonical and
@@ -816,7 +859,7 @@ class TrajectoryGenerator:
             self.inverse_skip_counts[f"GEN_DROP_{outcome}"] += 1
             return None
 
-        steps: List[TrajectoryStep] = []
+        steps = []
         for state, nid, action in bfs_path:
             cand_pairs = [
                 [c_nid, a.value]
@@ -840,6 +883,35 @@ class TrajectoryGenerator:
             steps=steps,
             difficulty=len(steps),          # = true BFS-optimal length
             inverse_sequence=inverse_names,  # provenance: how start scrambled
+        )
+
+    def generate_one_indexed(
+        self,
+        idx: int,
+        seed_base: int = 42,
+        gold_mode: str = "bfs",
+        max_degree: int = 4,
+    ) -> Optional[Trajectory]:
+        """Per-index deterministic generation.
+
+        Trajectory `idx` is fully determined by (seed_base, idx) ALONE — a
+        single rng seeded from the pair drives BOTH polynomial sampling and
+        the backward scramble. Consequences:
+          * embarrassingly parallel: any worker computes any idx independently
+          * reproducible: re-running idx yields the identical trajectory
+          * perfectly paired ablation: same idx + same seed_base in "recorded"
+            vs "bfs" mode -> identical scrambled start, gold differs only.
+
+        gold_mode does NOT affect the backward scramble (it only changes
+        post-scramble gold derivation), so the start is mode-invariant.
+        """
+        # Single per-index stream for poly + scramble. & mask keeps it in
+        # Random's happy range and avoids collisions across reasonable seeds.
+        rng_i = random.Random((seed_base * 1_000_003 + idx) & 0x7FFFFFFF)
+        poly = sample_canonical_polynomial(rng_i, max_degree=max_degree)
+        self.rng = rng_i  # backward scrambler (_pick_and_apply_inverse) uses self.rng
+        return self.generate_one(
+            poly, trajectory_id=f"traj_{idx:07d}", gold_mode=gold_mode
         )
 
     def _pick_and_apply_inverse(
