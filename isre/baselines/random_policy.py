@@ -64,12 +64,20 @@ def rollout(
             return True, step, loop_detected
 
         # Order-SENSITIVE key (to_expr), deliberately NOT canonicalized.
-        # SORT_COMMUTATIVE is a real action whose entire purpose is to move
-        # between commutatively-equivalent orderings (1+x -> x+1). An
-        # order-invariant key would flag every legitimate SORT as a loop
-        # (empirically: random SUCCESS 98%->36%, LOOP 0%->64% — all false).
-        # A genuine loop closes when an EXACT ordered state repeats, which
-        # to_expr() catches correctly.
+        #
+        # LOAD-BEARING REASON: engine dynamics (get_candidates, _coeff_key,
+        # _sort_key) are functions of the EXACT ordered AST. Two ASTs that
+        # are commutatively equal but positionally different are DIFFERENT
+        # engine states (different candidates / apply results). A loop
+        # closes only when the engine revisits the exact same dynamical
+        # state — i.e. to_expr() repeats. This holds regardless of how many
+        # actions can produce commutatively-equivalent states.
+        #
+        # SUPPORTING INVARIANT (verified, scripts/verify_sort_uniqueness.py):
+        # SORT_COMMUTATIVE is the ONLY action that leaves canonical_cycle_key
+        # unchanged while changing to_expr(). Canonicalizing the key would
+        # therefore false-flag every legitimate SORT as a loop (empirically:
+        # random SUCCESS 98%->36%, LOOP 0%->64% — all false).
         state_key = root.to_expr()
         if state_key in visited:
             loop_detected = True

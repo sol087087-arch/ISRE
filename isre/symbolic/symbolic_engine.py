@@ -691,5 +691,29 @@ if __name__ == "__main__":
     test_apply("sort Add(1, x)", Add(Num(1), Var()),
                0, ActionType.SORT_COMMUTATIVE, "(x + 1)")
 
+    # ── Loop-detection invariant ──────────────────────────────────────
+    # SORT_COMMUTATIVE is the ONLY action that can leave
+    # canonical_cycle_key() unchanged while changing to_expr() (it merely
+    # reorders commutative children). Every other action materially
+    # changes the canonical structure. This is a SUPPORTING invariant for
+    # order-sensitive loop detection (a future action exhibiting the SORT
+    # property would be a secret reorder-noop = bug), NOT the load-bearing
+    # reason. The load-bearing reason: engine dynamics (get_candidates,
+    # _coeff_key, _sort_key) are functions of the EXACT ordered AST, so
+    # the correct loop key is the exact engine state = to_expr().
+    # Full empirical scan: scripts/verify_sort_uniqueness.py
+    _sort_in  = Add(Num(1), Var())
+    _sort_out = engine.apply(_sort_in, 0, ActionType.SORT_COMMUTATIVE)
+    assert _sort_in.canonical_cycle_key() == _sort_out.canonical_cycle_key()
+    assert _sort_in.to_expr() != _sort_out.to_expr()
+    # A representative non-SORT action must change the canonical key.
+    _fold_in  = Add(Num(2), Num(3))
+    _fold_out = engine.apply(_fold_in, 0, ActionType.FOLD_CONST)
+    assert _fold_in.canonical_cycle_key() != _fold_out.canonical_cycle_key()
+    _rm_in  = Mul(Num(1), Var())
+    _rm_out = engine.apply(_rm_in, 0, ActionType.REMOVE_ONE)
+    assert _rm_in.canonical_cycle_key() != _rm_out.canonical_cycle_key()
+    print("\nloop-detection invariant (SORT-unique commutative reorder): OK")
+
     print(f"\n{'='*60}")
     print("ALL TESTS PASSED")
