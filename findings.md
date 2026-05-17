@@ -74,9 +74,54 @@ examples; it must be regenerated before further training.
 
 ---
 
-## Следующие шаги после этой находки
+## 2026-05-15 — Датасет v3: все 10 action types, ENGINE_GAP = 0%
 
-1. Перегенерировать датасет 50K с исправленным engine
-2. Убедиться что SORT_COMMUTATIVE > 0% в gold action distribution
-3. Запустить baseline comparison на новых данных (должен дать greedy ~100%, random ~97%)
-4. Начать MLP train run заново
+### Изменения
+
+- Добавлен `inverse_shuffle_commutative` → `SORT_COMMUTATIVE` в INVERSE_REGISTRY
+  (вес 0.03, ONCE_PER_EXPRESSION — чтобы не доминировал)
+- Перегенерирован датасет 50K (seed=42), 50000 траекторий, Failed: 0
+
+### Результаты analyze_dataset (50K)
+
+| Action | Count | % |
+|--------|-------|---|
+| MERGE_POWER | 26013 | 16.6% |
+| COMBINE_COEFF | 25383 | 16.2% |
+| REMOVE_ZERO | 24935 | 15.9% |
+| REMOVE_ONE | 24860 | 15.9% |
+| SORT_COMMUTATIVE | 22437 | **14.3%** |
+| FOLD_CONST | 20271 | 12.9% |
+| FLATTEN_ADD | 5705 | 3.6% |
+| EXPAND | 2801 | 1.8% |
+| COLLECT_TERMS | 2445 | 1.6% |
+| FLATTEN_MUL | 1708 | 1.1% |
+
+Все 10 action types присутствуют. SORT_COMMUTATIVE = 14.3% (было 0%).
+
+**Аномалия**: 12.1% траекторий содержат state cycle (A→B→A). Предположительно —
+взаимодействие SHUFFLE_COMMUTATIVE с другими inverse ops, которые случайно
+восстанавливают предыдущее состояние. Требует диагностики перед финальным датасетом.
+
+### Результаты diagnose_failures (n=500, новый датасет)
+
+| Policy | ENGINE_GAP | SUCCESS |
+|--------|-----------|---------|
+| Random | **0.0%** | 98.6% |
+| Greedy | **0.0%** | 100.0% |
+
+### Результаты compare_baselines (n=1000, новый датасет)
+
+| Policy | Succ% | Steps\|Succ | Steps\|All | FasterTchr |
+|--------|-------|-------------|------------|------------|
+| random (5 seeds) | 98.8%±0.2% | 6.58±0.06 | 6.75 | 2.7% |
+| greedy (det.) | **100.0%** | **3.49** | 3.49 | **18.3%** |
+| neural (MLP) | — | — | — | — |
+
+Greedy 100% на всех difficulty 1–6. Baseline готов.
+
+### Следующие шаги
+
+- [ ] Диагностировать 12.1% cycles — понять причину, решить фильтровать или нет
+- [ ] Запустить MLP train run на датасете v3
+- [ ] Ответить на KAN architecture critique (bottleneck = interpretability killer)
