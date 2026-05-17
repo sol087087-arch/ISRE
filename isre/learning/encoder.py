@@ -235,7 +235,8 @@ if __name__ == "__main__":
     )
     emb2, ctx2 = encoder(expr2)
     print(f"3x²+2x-5: nodes={emb2.shape[0]}, emb_dim={emb2.shape[1]}")
-    assert emb2.shape[0] == 9  # Add, Mul, 3, Pow, x, 2, Mul, 2, x, -5... count manually
+    # 10 nodes: Add, Mul, Num(3), Pow, Var(x), Num(2)=exp, Mul, Num(2)=coeff, Var(x), Num(-5)
+    assert emb2.shape[0] == 10, f"expected 10 nodes, got {emb2.shape[0]}"
     print("  ✓ shapes OK")
 
     # Test 3: gradient flow

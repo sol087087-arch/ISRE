@@ -137,9 +137,11 @@ class SymbolicEngine:
         return any(c.node_type == NodeType.MUL for c in node.children)
 
     def _can_fold_const(self, node: ASTNode) -> bool:
-        """Fold numeric children:
-        - ADD: at least 2 NUMBER children (may be mixed with non-numbers)
-        - MUL: ALL children must be NUMBER (mixed MUL fold is out of v1 scope)
+        """Fold numeric children. Both ADD and MUL: fire when >= 2 NUMBER
+        children present; mixed expressions are allowed and the non-numeric
+        children are preserved by _apply_fold_const.
+          ADD: Add(1, 2, x^4) -> Add(x^4, 3)
+          MUL: Mul(3, 3, x)   -> Mul(9, x)
         Only NUMBER, not CONST (we don't fold pi + e)."""
         if node.node_type not in (NodeType.ADD, NodeType.MUL):
             return False
@@ -254,13 +256,14 @@ class SymbolicEngine:
                 key, coeff, var_part = info
                 groups.setdefault(key, []).append((coeff, var_part, child))
 
-        # find a group with 2+ members
-        target_key = None
-        for k, v in groups.items():
-            if len(v) >= 2:
-                target_key = k
-                break
-        if target_key is None:
+        # Pick the LARGEST group (symmetric with _apply_collect_terms, which
+        # uses max-by-size). Picking the first 2+ group made the engine combine
+        # a 2-term group while a 3-term group waited, inflating trajectory length
+        # and making the greedy tiebreak order-dependent.
+        if not groups:
+            return node
+        target_key = max(groups, key=lambda k: len(groups[k]))
+        if len(groups[target_key]) < 2:
             return node
 
         group = groups[target_key]
@@ -338,9 +341,10 @@ class SymbolicEngine:
     def _apply_fold_const(self, node: ASTNode) -> ASTNode:
         """Fold numeric children.
         ADD: fold all NUMBER children into one, keep non-numbers.
-             Add(1, 2, x^4) → Add(x^4, 3)
-        MUL: fold all children (only called when all are NUMBER).
-             Mul(2, 3) → 6
+             Add(1, 2, x^4) -> Add(x^4, 3)
+        MUL: fold the NUMBER subset into a coefficient, keep non-numbers,
+             place coefficient first.
+             Mul(2, 3) -> 6 ; Mul(3, 3, x) -> Mul(9, x)
         """
         if node.node_type == NodeType.ADD:
             nums = [c for c in node.children if c.node_type == NodeType.NUMBER]
@@ -464,33 +468,47 @@ class SymbolicEngine:
             return f"{node.children[0].value}^{node.children[1].value}"
         return node.to_json()  # fallback — stable, clone-safe
 
+    def _split_coeff_term(self, node: ASTNode) -> Optional[tuple[ASTNode, ASTNode]]:
+        """For a 2-child MUL, return (number_child, term_child) regardless of
+        operand order. Mul(2, x) and Mul(x, 2) both yield (Num(2), x).
+        Returns None if node is not NUMBER * bare_term in either orientation.
+
+        Order-agnostic by design: requiring NUMBER first forced an artificial
+        SORT_COMMUTATIVE -> COMBINE_COEFF ordering and skewed the action-sequence
+        distribution in generated trajectories."""
+        if node.node_type != NodeType.MUL or len(node.children) != 2:
+            return None
+        a, b = node.children
+        if a.node_type == NodeType.NUMBER and self._is_bare_term(b):
+            return (a, b)
+        if b.node_type == NodeType.NUMBER and self._is_bare_term(a):
+            return (b, a)
+        return None
+
     def _coeff_key(self, node: ASTNode) -> Optional[str]:
         """Variable-part key for coefficient extraction.
         Returns None if node is not a recognizable monomial.
-        x → 'x', Mul(3,x) → 'x', Mul(2, Pow(x,2)) → 'x^2', Pow(x,3) → 'x^3'."""
+        x → 'x', Mul(3,x) → 'x', Mul(x,3) → 'x', Mul(2,Pow(x,2)) → 'x^2'."""
         if self._is_bare_term(node):
             return self._var_key(node)
-        if (node.node_type == NodeType.MUL
-                and len(node.children) == 2
-                and node.children[0].node_type == NodeType.NUMBER
-                and self._is_bare_term(node.children[1])):
-            return self._var_key(node.children[1])
+        split = self._split_coeff_term(node)
+        if split is not None:
+            return self._var_key(split[1])
         return None
 
     def _coeff_info(self, node: ASTNode) -> Optional[tuple[str, float, ASTNode]]:
         """Extract (var_key, coefficient, var_part) from a monomial.
-        x → ('x', 1, x), Mul(3, x) → ('x', 3, x), Pow(x,2) → ('x^2', 1, Pow(x,2))."""
+        x → ('x', 1, x), Mul(3,x) → ('x', 3, x), Mul(x,3) → ('x', 3, x)."""
         if self._is_bare_term(node):
             return (self._var_key(node), 1.0, node)
-        if (node.node_type == NodeType.MUL
-                and len(node.children) == 2
-                and node.children[0].node_type == NodeType.NUMBER
-                and self._is_bare_term(node.children[1])):
+        split = self._split_coeff_term(node)
+        if split is not None:
+            num_child, term_child = split
             try:
-                coeff = float(node.children[0].value)
+                coeff = float(num_child.value)
             except ValueError:
                 return None
-            return (self._var_key(node.children[1]), coeff, node.children[1])
+            return (self._var_key(term_child), coeff, term_child)
         return None
 
     def _sort_key_add(self, node: ASTNode) -> tuple:
@@ -627,8 +645,13 @@ if __name__ == "__main__":
          Mul(Pow(Var(), Num(2)), Pow(Var(), Num(3))),
          ["MERGE_POWER"])
 
-    # SORT_COMMUTATIVE: Add(x, 1) — x before 1, should sort to 1, x
-    test("Add(x, 1)", Add(Var(), Num(1)), ["SORT_COMMUTATIVE"])
+    # SORT_COMMUTATIVE: canonical ADD = high-degree terms first, constants last.
+    # Add(x, 1) is ALREADY sorted (x is tier-0, 1 is tier-1) -> NOT a candidate.
+    # Add(1, x) is OUT of order -> SORT_COMMUTATIVE applies, sorts to (x + 1).
+    test("Add(1, x) [unsorted]", Add(Num(1), Var()), ["SORT_COMMUTATIVE"])
+    _sorted_add = engine.get_candidates(Add(Var(), Num(1)))
+    assert not any(a.value == "SORT_COMMUTATIVE" for _, _, a in _sorted_add), \
+        "Add(x, 1) is already canonical — SORT_COMMUTATIVE must NOT fire"
 
     # --- apply transforms ---
 
@@ -664,8 +687,9 @@ if __name__ == "__main__":
                Mul(Pow(Var(), Num(2)), Pow(Var(), Num(3))),
                0, ActionType.MERGE_POWER, "(x)^5")
 
-    test_apply("sort Add(x, 1)", Add(Var(), Num(1)),
-               0, ActionType.SORT_COMMUTATIVE, "(1 + x)")
+    # Canonical ADD: terms first, constants last. Add(1, x) -> (x + 1).
+    test_apply("sort Add(1, x)", Add(Num(1), Var()),
+               0, ActionType.SORT_COMMUTATIVE, "(x + 1)")
 
     print(f"\n{'='*60}")
     print("ALL TESTS PASSED")

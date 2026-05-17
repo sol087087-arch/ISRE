@@ -274,6 +274,28 @@ if __name__ == "__main__":
     assert expr2 in seen
     print("hash cycle detection: OK")
 
+    # clone preserves preorder iteration order bit-for-bit.
+    # SymbolicEngine.apply() clones root then resolves node_id via
+    # get_node_by_id (= list(iter_preorder())[node_id]). If clone ever
+    # stops preserving children order, apply() silently targets the wrong
+    # node. deepcopy preserves it today; this guards future custom clones.
+    deep = Mul(
+        Add(Pow(Var(), Num(2)), Mul(Num(3), Var()), Num(1)),
+        Add(Var(), Num(7)),
+    )
+    deep_clone = deep.clone()
+    orig_seq = [(n.node_type, n.value) for n in deep.iter_preorder()]
+    clone_seq = [(n.node_type, n.value) for n in deep_clone.iter_preorder()]
+    assert orig_seq == clone_seq, (
+        f"clone broke preorder order:\n  orig={orig_seq}\n  clone={clone_seq}"
+    )
+    # And every index resolves to the same structural node
+    for i in range(len(orig_seq)):
+        o = deep.get_node_by_id(i)
+        c = deep_clone.get_node_by_id(i)
+        assert (o.node_type, o.value) == (c.node_type, c.value)
+    print("clone preorder stability: OK")
+
     # serialization roundtrip
     expr3 = ASTNode.from_json(expr.to_json())
     assert expr == expr3
