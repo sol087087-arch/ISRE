@@ -63,6 +63,13 @@ def rollout(
         if _canonical_reached(root, canonical):
             return True, step, loop_detected
 
+        # Order-SENSITIVE key (to_expr), deliberately NOT canonicalized.
+        # SORT_COMMUTATIVE is a real action whose entire purpose is to move
+        # between commutatively-equivalent orderings (1+x -> x+1). An
+        # order-invariant key would flag every legitimate SORT as a loop
+        # (empirically: random SUCCESS 98%->36%, LOOP 0%->64% — all false).
+        # A genuine loop closes when an EXACT ordered state repeats, which
+        # to_expr() catches correctly.
         state_key = root.to_expr()
         if state_key in visited:
             loop_detected = True

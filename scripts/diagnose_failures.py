@@ -65,6 +65,9 @@ def classify_rollout(
         if not candidates:
             return ENGINE_GAP, expr  # dead-end: engine has no move but not canonical
 
+        # Order-SENSITIVE: SORT_COMMUTATIVE legitimately moves between
+        # commutatively-equivalent orderings; an order-invariant key would
+        # false-flag every SORT step as a loop.
         if expr in visited:
             # detected before picking next move — policy will loop
             return LOOP, expr
@@ -108,6 +111,7 @@ def classify_greedy_failure(
         if not candidates:
             return ENGINE_GAP, expr
 
+        # Order-SENSITIVE (see classify_rollout note).
         if expr in visited:
             return LOOP, expr
 

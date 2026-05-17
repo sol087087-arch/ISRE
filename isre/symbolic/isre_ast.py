@@ -141,6 +141,31 @@ class ASTNode:
             tuple(c._structural_tuple() for c in self.children),
         )
 
+    def canonical_cycle_key(self) -> tuple:
+        """Order-invariant structural key: ADD/MUL children sorted.
+
+        NOTE: deliberately NOT used for loop_rate / cycle detection.
+        An external review suggested canonicalizing the cycle-detector key
+        so that A -> A' commutative reorders count as loops. Empirically
+        that is WRONG for this domain: SORT_COMMUTATIVE is a real action
+        whose purpose is to move between commutatively-equivalent orderings
+        (1+x -> x+1). Canonicalizing makes every legitimate SORT step look
+        like a loop (random SUCCESS 98%->36%, LOOP 0%->64%, all false).
+        The loop detectors use order-sensitive to_expr() on purpose; a true
+        loop closes when an EXACT ordered state repeats, which to_expr()
+        catches without false-flagging SORT.
+
+        This method is retained as a general structural utility (e.g.
+        dataset-level dedup of commutatively-equal canonical forms). Sorting
+        by repr() gives a total, deterministic order across the mixed
+        (NodeType, str|None, tuple) element types. __eq__/__hash__ stay
+        order-sensitive — child order is semantically meaningful here.
+        """
+        child_keys = [c.canonical_cycle_key() for c in self.children]
+        if self.node_type in (NodeType.ADD, NodeType.MUL):
+            child_keys = sorted(child_keys, key=repr)
+        return (self.node_type, self.value, tuple(child_keys))
+
     def __eq__(self, other) -> bool:
         if not isinstance(other, ASTNode):
             return NotImplemented
@@ -273,6 +298,28 @@ if __name__ == "__main__":
     seen = {expr}
     assert expr2 in seen
     print("hash cycle detection: OK")
+
+    # canonical_cycle_key: order-invariant for commutative ops, but still
+    # distinguishes genuinely different states. Used by loop_rate so a
+    # SORT_COMMUTATIVE oscillation is correctly counted as a cycle.
+    a1 = Add(Var("x"), Num(1))
+    a2 = Add(Num(1), Var("x"))               # same state, reordered ADD
+    assert a1.canonical_cycle_key() == a2.canonical_cycle_key(), \
+        "commutative reorder must map to same cycle key"
+    assert a1 != a2, "but __eq__ stays order-sensitive (pre-canonical)"
+    m1 = Mul(Num(2), Var("x"))
+    m2 = Mul(Var("x"), Num(2))               # same state, reordered MUL
+    assert m1.canonical_cycle_key() == m2.canonical_cycle_key()
+    # genuinely different states must NOT collide
+    assert Add(Var("x"), Num(1)).canonical_cycle_key() != \
+           Add(Var("x"), Num(2)).canonical_cycle_key()
+    assert Add(Var("x"), Num(1)).canonical_cycle_key() != \
+           Mul(Var("x"), Num(1)).canonical_cycle_key()
+    # nested commutative reorder
+    n1 = Add(Mul(Num(2), Var("x")), Mul(Num(3), Var("x")))
+    n2 = Add(Mul(Var("x"), Num(3)), Mul(Var("x"), Num(2)))
+    assert n1.canonical_cycle_key() == n2.canonical_cycle_key()
+    print("canonical_cycle_key: OK")
 
     # clone preserves preorder iteration order bit-for-bit.
     # SymbolicEngine.apply() clones root then resolves node_id via

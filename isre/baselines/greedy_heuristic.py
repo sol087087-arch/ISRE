@@ -78,6 +78,9 @@ def rollout(
         if _canonical_reached(root, canonical):
             return True, step, loop_detected
 
+        # Order-SENSITIVE (to_expr), NOT canonicalized — SORT_COMMUTATIVE is a
+        # real action between commutatively-equivalent orderings; an
+        # order-invariant key would false-flag every SORT as a loop.
         state_key = root.to_expr()
         if state_key in visited:
             loop_detected = True   # diagnostic flag — we keep going
