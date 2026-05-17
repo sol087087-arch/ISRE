@@ -20,6 +20,7 @@ from tqdm import tqdm
 
 from isre.symbolic.isre_ast import ASTNode, NodeType, Num, Var, Add, Mul, Pow
 from isre.symbolic.symbolic_engine import SymbolicEngine, ActionType
+from isre.baselines.bfs_optimal import bfs_optimal_path
 
 
 # ====================== DATA STRUCTURES ======================
@@ -678,11 +679,17 @@ class TrajectoryGenerator:
         seed: int = 42,
         max_ast_depth: int = 6,
         max_trajectory_length: int = 6,
+        bfs_budget: int = 100000,
+        max_bfs_depth: int = 20,
     ) -> None:
         self.rng = random.Random(seed)
         self.engine = SymbolicEngine()
         self.max_ast_depth = max_ast_depth
         self.max_trajectory_length = max_trajectory_length
+        # C-BFS gold: gold path = BFS-shortest forward path scrambled->canonical.
+        # budget=100k -> <0.5% drop on deep diff-6 starts (one-time gen cost).
+        self.bfs_budget = bfs_budget
+        self.max_bfs_depth = max_bfs_depth
         # Diagnostic: counts how many times each inverse was skipped because
         # the corresponding forward action wasn't in engine.get_candidates().
         # Non-zero entries reveal inverse ops that produce engine-invisible states.
@@ -784,19 +791,45 @@ class TrajectoryGenerator:
         if not backward_records:
             return None
 
-        # Build steps in forward order (most scrambled → canonical)
+        scrambled = backward_records[-1][0]
+
+        # ── C-BFS gold ────────────────────────────────────────────────────
+        # gold = provably-minimal forward path scrambled -> canonical, found
+        # by BFS over engine states. Replaces the old "reverse the inverse
+        # action sequence" gold, which produced internally-inconsistent
+        # labels whenever an inverse's forward needed >1 engine action
+        # (FACTOR_* -> EXPAND etc.; 7.3% of v5 was broken — see POSTMORTEM).
+        #
+        # The backward pass above is now purely a SCRAMBLER: it produces a
+        # diverse, valid non-canonical start (and inverse_sequence as
+        # provenance). Gold correctness no longer depends on inverse/forward
+        # symmetry — BFS guarantees the gold sequence reaches canonical and
+        # is optimal by construction (also fixes teacher-suboptimality).
+        outcome, bfs_path = bfs_optimal_path(
+            scrambled, canonical_ast, self.engine,
+            max_expansions=self.bfs_budget,
+            max_depth=self.max_bfs_depth,
+        )
+        if outcome != "SUCCESS" or not bfs_path:
+            # Drop: no clean optimal gold within budget. Better no trajectory
+            # than a broken terminal label. Logged for drop-rate accounting.
+            self.inverse_skip_counts[f"GEN_DROP_{outcome}"] += 1
+            return None
+
         steps: List[TrajectoryStep] = []
-        for state, fwd_action, fwd_node_id, cand_actions in reversed(backward_records):
+        for state, nid, action in bfs_path:
+            cand_pairs = [
+                [c_nid, a.value]
+                for c_nid, _, a in self.engine.get_candidates(state)
+            ]
             steps.append(TrajectoryStep(
                 state=state.to_dict(),
                 state_expr=state.to_expr(),
-                candidate_actions=cand_actions,
-                gold_action=fwd_action.value,
-                gold_node_id=fwd_node_id,
+                candidate_actions=cand_pairs,
+                gold_action=action.value,
+                gold_node_id=nid,
                 complexity=state.complexity(),
             ))
-
-        scrambled = backward_records[-1][0]
 
         return Trajectory(
             trajectory_id=trajectory_id,
@@ -805,8 +838,8 @@ class TrajectoryGenerator:
             original_expr=scrambled.to_expr(),
             original_ast=scrambled.to_dict(),
             steps=steps,
-            difficulty=len(steps),
-            inverse_sequence=inverse_names,
+            difficulty=len(steps),          # = true BFS-optimal length
+            inverse_sequence=inverse_names,  # provenance: how start scrambled
         )
 
     def _pick_and_apply_inverse(
