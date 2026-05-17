@@ -52,10 +52,13 @@ class ASTEncoder(nn.Module):
 
         # Discrete value embeddings (not continuous projection)
         self.coeff_embedding = nn.Embedding(NUM_COEFF_VALUES, hidden_dim)  # for NUMBER nodes
-        # exp_embedding: reserved for future use (e.g. POW exponent as discrete token).
-        # Currently not wired into _value_embedding — POW nodes take the zero-embedding path.
-        # TODO: wire exp_embedding for Pow exponent nodes before v2 encoder experiments.
-        self.exp_embedding = nn.Embedding(NUM_EXP_VALUES, hidden_dim)
+        # NOTE: no exp_embedding. v1 deliberately does NOT embed POW exponents
+        # as a discrete token — POW nodes take the zero-embedding value path
+        # and the exponent is carried structurally (Pow has a NUMBER child).
+        # A dead nn.Embedding was removed here: it added parameters that would
+        # inflate the reported param count in the matched KAN-vs-MLP
+        # comparison without ever contributing to the forward pass.
+        # (NUM_EXP_VALUES kept as a constant for a future v2 wiring.)
 
         # Variable name embedding (v1: single variable x, but extensible)
         self.var_embedding = nn.Embedding(4, hidden_dim)  # x, y, z, other

@@ -42,8 +42,16 @@ class PolicyNetwork(nn.Module):
         # Action type embedding (shared across all candidates)
         self.action_embedding = nn.Embedding(num_action_types, action_emb_dim)
 
-        # Action type → index mapping
-        self._action_to_idx = {action: i for i, action in enumerate(ActionType)}
+        # Action type → embedding index. Pinned to a STABLE alphabetical
+        # order of action.value strings, NOT enum declaration order.
+        # Rationale: enumerate(ActionType) ties embedding rows to source
+        # order. Reordering the ActionType enum would silently remap every
+        # trained weight (no error, wrong model). Sorting by the string
+        # value makes the mapping invariant to enum edits — a checkpoint
+        # stays valid as long as the action NAMES are unchanged.
+        self._action_to_idx = {
+            a: i for i, a in enumerate(sorted(ActionType, key=lambda x: x.value))
+        }
 
         input_dim = node_emb_dim + action_emb_dim
 
