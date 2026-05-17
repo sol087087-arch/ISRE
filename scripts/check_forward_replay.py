@@ -20,7 +20,8 @@ from isre.symbolic.isre_ast import ASTNode
 from isre.symbolic.symbolic_engine import SymbolicEngine, ActionType
 
 eng = SymbolicEngine()
-files = sorted(Path("isre/trajectories").glob("traj_*.json"))
+_data_dir = sys.argv[1] if len(sys.argv) > 1 else "isre/trajectories"
+files = sorted(Path(_data_dir).glob("traj_*.json"))
 
 n = 0
 broken = 0
