@@ -67,11 +67,69 @@ AMC/AIME-уровень (depth 8–10) — v2, требует либо дина�
 
 ---
 
-## Experiment 1: MLP vs KAN на v1-домене
+## Experiment 1
 
-**Датасет:** 50K траекторий, степени 1–4, 9 inverse-трансформов.
-**Модели:** TreeGRU encoder (одинаковый) + MLP head vs KAN head.
-**Метрики:** success rate на val rollout, avg steps, gold_rank@1.
+```
+EXPERIMENT 1 — STATUS: FINDING ESTABLISHED
+
+Primary claim: For this symbolic algebra task on v6_bfs distribution,
+the bottleneck of greedy MLP policy is inference strategy, not model
+capacity or learned representation quality.
+
+Evidence (three independent axes, leak-free):
+  - Capacity (FALSIFIED): hidden=512 <= hidden=128 across all 10 metrics
+    on identical held-out split (split_seed=1234, trajectory-level)
+  - Representation (FALSIFIED): gold-rank mean 1.23, median 1 across
+    all rollout steps; model is locally near-optimal
+  - Decoding (CONFIRMED): beam{2,3,5} reduces per-step error projection
+    from 14.9% to {5.0%, 1.7%, 0.3%}; trajectory overhead reduced from
+    0.129 to 0.011, BFS-optimal rate from 91.8% to 99.2%
+
+Saturation note: success rate already at 100% under greedy; finding is
+on path-optimality (efficiency), not success. This is the empirically
+correct metric given the task structure.
+
+Next experiments build on this finding:
+  - Day-7 KAN synthetic feasibility check
+  - Experiment 1 (KAN vs MLP) on hidden=128 with beam-{best} inference,
+    KAN over hand-crafted features (not GRU embeddings)
+  - 5-seed campaign on final configuration for mean±std
+```
+
+### Day-7 KAN synthetic feasibility (BLOCKING gate for KAN-vs-MLP)
+
+Falsifiable check, not perfectionism: give KAN a task with KNOWN analytic
+structure and verify φ_i curves recover it. Task: `score(x,y) =
+sin(x) + |y|` — additive, two univariate ground-truth functions. PASS
+iff φ_1 ≈ sin, φ_2 ≈ |·| (disentangled). If entangled → debug on the
+synthetic, NOT on the real task. If KAN can't show interpretable φ_i on
+a task with analytic ground truth, KAN-vs-MLP on the real task degrades
+to "two models compared" — and at hidden=128 (already saturating) that
+is uninteresting. Interpretability IS the reason KAN is in the project.
+
+### KAN input = hand-crafted features, NOT GRU embeddings (architectural)
+
+This is an MLP-vs-KAN-level architectural decision, not a nuance.
+KAN φ_i curves are interpreted RELATIVE TO INPUT FEATURES. If KAN input
+is the GRU encoder output, φ_i(embed_dim_17) is a black-box curve —
+meaningless for interpretation. KAN input MUST be semantically
+meaningful hand-crafted features (node_type, depth, subtree_size,
+action_type, ...), so φ_depth(x) reads as "effect of node depth on
+scoring". MLP keeps the GRU encoder; the comparison is then explicitly
+"MLP-with-subtree-context vs KAN-with-readable-features".
+
+### 5-seed campaign: ONE config, beam fixed (no greedy/beam split)
+
+Fix beam-{best} (beam-2 or beam-3 by cost/benefit) as THE inference
+setting for ALL seed runs BEFORE the campaign. mean±std is reported on
+the final configuration only. Do NOT run 5×greedy and 5×beam separately
+— that yields two groups with no defined "headline". One group, final
+config.
+
+**Датасет:** v6_bfs 48428 (gold=BFS-оптимум), trajectory-level split.
+**Модели:** TreeGRU encoder (MLP) vs KAN over hand-crafted features.
+**Метрики:** rollout success (saturated), step-overhead vs BFS-optimal
+(primary), bfs_optimal_rate, MODE-B 3-way divergence, KAN φ_i curves.
 
 ### Rigor: seeds и variance
 
