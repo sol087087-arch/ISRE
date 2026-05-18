@@ -90,13 +90,38 @@ with torch.no_grad():
     inter_rmse = torch.sqrt(torch.mean(inter ** 2)).item()
     inter_ratio = inter_rmse / (sig_std + 1e-12)
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+# Backend-INDEPENDENT phi_i artifact (paper figure): learned marginal vs
+# ground truth. Does not depend on pykan's .plot() at all.
+fig, ax = plt.subplots(1, 2, figsize=(10, 4))
+ax[0].plot(grid.squeeze().numpy(), sinx.numpy(), "k--", label="true sin(x)")
+ax[0].plot(grid.squeeze().numpy(), mx.numpy(), "C0", label="KAN φ_x  (y=0)")
+ax[0].set_title(f"φ_x vs sin(x)   R²={r2_x:.4f}"); ax[0].legend()
+ax[1].plot(gy.squeeze().numpy(), absy.numpy(), "k--", label="true |y|")
+ax[1].plot(gy.squeeze().numpy(), my.numpy(), "C1", label="KAN φ_y  (x=0)")
+ax[1].set_title(f"φ_y vs |y|   R²={r2_y:.4f}"); ax[1].legend()
+fig.suptitle("Day-7 KAN: learned univariate functions vs ground truth")
+fig.tight_layout()
+fig.savefig(OUT / "phi_recovery.png", dpi=120, bbox_inches="tight")
+plt.close(fig)
+plot_note = f"phi_i artifact (backend-independent): {OUT/'phi_recovery.png'}"
+
+# Also TRY pykan's native .plot() — root cause of the earlier alpha(nan)
+# was a 1-row last forward (model(zeros(1,2))) poisoning cached postacts
+# (std dof<=0). Re-run a LARGE-batch forward first so cached acts have
+# valid statistics, then attempt the native edge plot (nice-to-have).
 try:
+    with torch.no_grad():
+        model(te_i)                       # 1000-pt forward repopulates acts
     model.plot(folder=str(OUT))
-    import matplotlib.pyplot as plt
-    plt.savefig(OUT / "phi_curves.png", dpi=110, bbox_inches="tight")
-    plot_note = f"phi_i figures: {OUT/'phi_curves.png'}"
+    plt.savefig(OUT / "pykan_native.png", dpi=110, bbox_inches="tight")
+    plt.close("all")
+    plot_note += f" ; pykan native: {OUT/'pykan_native.png'}"
 except Exception as e:
-    plot_note = f"(plot skipped: {e})"
+    plot_note += f" ; pykan native .plot() still failing: {e}"
 
 print(f"\ntest MSE        : {test_mse:.5f}  (signal std {sig_std:.3f})")
 print(f"R^2 x-marginal vs sin(x) : {r2_x:.4f}   (PASS > 0.95)")

@@ -273,6 +273,9 @@ Experiment 1 — primary finding УСТАНОВЛЕН (контролируем�
 - [ ] (d) 5-seed [1,2,3,42] с beam для mean±std на headline
 - [ ] (c) опц. 256 — scaling-кривая 128/256/512
 - [x] Day 7: KAN-синтетика **PASS** — f=sin(x)+|y|, R² φ_x=0.999, φ_y=0.997,
-      additive-residual 0.024 (pykan 0.2.8). φ_i interpretability methodology
-      VALID. CAVEAT: pykan `.plot()` bug (alpha nan) — fix before (b) (paper φ_i figs)
+      additive-residual 0.024 (pykan 0.2.8). φ_i interpretability methodology VALID.
+      Plot-bug RESOLVED: root cause was a 1-row forward poisoning pykan's cached
+      postacts (std dof≤0→alpha nan), NOT a pykan defect. Fix = representative
+      large-batch forward immediately before `.plot()` (pattern locked for (b)).
+      Artifacts: phi_recovery.png (backend-independent) + pykan native sp_*.png.
 - [ ] Activation visualization для KAN φ_i (subgradient-equivalent fork-структура)
