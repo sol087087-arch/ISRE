@@ -124,14 +124,27 @@ def main():
 
     bfs_dir = Path(args.bfs_data)
     rec_dir = Path(args.recorded_data)
-    ids = sorted(p.name for p in bfs_dir.glob("traj_*.json"))
 
-    # Reproduce the trainer's val split: identical seed+shuffle on ids.
-    random.seed(args.seed)
-    random.shuffle(ids)
-    split = max(1, int(len(ids) * (1 - args.val_split)))
-    val_ids = ids[split:][: args.n]
-    print(f"Eval on {len(val_ids)} held-out trajectories\n")
+    # EXPLICIT held-out dependency: read the exact trajectory ids the
+    # trainer held out (written next to the checkpoint as val_traj_ids.json).
+    # Fail LOUD if absent — never re-derive / shuffle-guess (the old
+    # "reproduce split by reshuffling" was a lie: it shuffled id strings
+    # while the trainer shuffled steps -> contaminated eval, POSTMORTEM #7).
+    vpath = Path(args.ckpt).parent / "val_traj_ids.json"
+    if not vpath.exists():
+        sys.exit(f"FATAL: {vpath} missing. This checkpoint was trained "
+                 f"without the trajectory-level split (or pre-#7). A clean "
+                 f"held-out eval is impossible; re-train with current "
+                 f"train.py. NOT falling back to a guessed split.")
+    meta = json.loads(vpath.read_text(encoding="utf-8"))
+    val_set = set(meta["val_traj_ids"])
+    # Map ids (stored as traj.trajectory_id, e.g. 'traj_0001234') to files.
+    all_files = {p.stem: p for p in bfs_dir.glob("traj_*.json")}
+    val_ids = sorted(tid for tid in val_set if tid in all_files)
+    if args.n:
+        val_ids = val_ids[: args.n]
+    print(f"Held-out: {len(val_set)} val trajectories "
+          f"(split_seed={meta.get('split_seed')}); evaluating {len(val_ids)}\n")
 
     succ = 0
     overheads = []
@@ -143,7 +156,8 @@ def main():
     gold_steps_match = 0
 
     for tid in val_ids:
-        b = json.loads((bfs_dir / tid).read_text(encoding="utf-8"))
+        fname = tid if tid.endswith(".json") else f"{tid}.json"
+        b = json.loads((bfs_dir / fname).read_text(encoding="utf-8"))
         start = ASTNode.from_dict(b["original_ast"])
         canon = b["canonical_expr"]
         bfs_len = b["difficulty"]         # = BFS-optimal by construction
@@ -157,7 +171,7 @@ def main():
             fail_diff[bfs_len] += 1
 
         # ---- MODE B: teacher-forced step agreement on BFS gold path ----
-        rec_path = rec_dir / tid
+        rec_path = rec_dir / fname
         rec_by_expr = {}
         if rec_path.exists():
             r = json.loads(rec_path.read_text(encoding="utf-8"))

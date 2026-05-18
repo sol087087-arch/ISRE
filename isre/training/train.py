@@ -40,6 +40,7 @@ class TrainingStep:
     gold_node_id: int
     complexity: int
     difficulty: int  # trajectory length (for curriculum)
+    trajectory_id: str = ""  # for trajectory-level (leak-free) train/val split
 
 
 def load_trajectories(data_dir: str, max_files: int = None) -> List[TrainingStep]:
@@ -59,6 +60,7 @@ def load_trajectories(data_dir: str, max_files: int = None) -> List[TrainingStep
             traj = json.load(fh)
 
         difficulty = traj["difficulty"]
+        traj_id = traj.get("trajectory_id", f.stem)
 
         for step_data in traj["steps"]:
             try:
@@ -97,6 +99,7 @@ def load_trajectories(data_dir: str, max_files: int = None) -> List[TrainingStep
                 gold_node_id=gold_node_id,
                 complexity=step_data.get("complexity", 0),
                 difficulty=difficulty,
+                trajectory_id=traj_id,
             ))
 
     if skipped > 0:
@@ -151,6 +154,53 @@ class EpochMetrics:
 # breaking the consecutive run avoids any accidental structure. Primary
 # run = seed 0; replicates = the rest. Quoted verbatim in the paper.
 CAMPAIGN_SEEDS = [0, 1, 2, 3, 42]
+
+# Train/val split seed — DELIBERATELY separate from the training seed.
+# The held-out set must be IDENTICAL across all CAMPAIGN_SEEDS (only model
+# init/sampling varies per seed, never which trajectories are held out).
+SPLIT_SEED = 1234
+
+
+def trajectory_level_split(all_steps, val_frac=0.1, split_seed=SPLIT_SEED):
+    """Leak-free split: partition by trajectory_id, NOT by step.
+
+    The old `random.shuffle(all_steps); split` put steps of the SAME
+    trajectory in both train and val (state s_i in train, s_{i+1} in val —
+    near-leakage; every per-step val number was optimistic). Here a whole
+    trajectory's steps go entirely to train XOR entirely to val.
+
+    Stratified by difficulty so val mirrors the diff 1..N distribution
+    (free hygiene). Deterministic in split_seed alone -> identical held-out
+    set across training seeds, independent of training-seed shuffling.
+
+    Returns (train_steps, val_steps, sorted(val_traj_ids)).
+    """
+    from collections import defaultdict as _dd
+    diff_of = {}
+    for s in all_steps:
+        diff_of[s.trajectory_id] = s.difficulty
+    by_diff = _dd(list)
+    for tid, d in diff_of.items():
+        by_diff[d].append(tid)
+
+    rng = random.Random(split_seed)
+    val_ids = set()
+    for d in sorted(by_diff):
+        ids = sorted(by_diff[d])          # stable order before sampling
+        rng.shuffle(ids)
+        k = max(1, round(len(ids) * val_frac)) if len(ids) > 1 else 0
+        val_ids.update(ids[:k])
+
+    train_steps = [s for s in all_steps if s.trajectory_id not in val_ids]
+    val_steps = [s for s in all_steps if s.trajectory_id in val_ids]
+
+    # Smoke (point 5): no trajectory_id appears in both partitions.
+    tr_ids = {s.trajectory_id for s in train_steps}
+    va_ids = {s.trajectory_id for s in val_steps}
+    overlap = tr_ids & va_ids
+    assert not overlap, f"LEAK: {len(overlap)} traj ids in both train and val"
+
+    return train_steps, val_steps, sorted(val_ids)
 
 
 # ====================== CURRICULUM ======================
@@ -430,12 +480,26 @@ def train(
         print("No training data found. Run trajectory_gen.py first.")
         return
 
-    # Train/val split
-    random.shuffle(all_steps)
-    split_idx = max(1, int(len(all_steps) * (1 - val_split)))
-    train_steps = all_steps[:split_idx]
-    val_steps = all_steps[split_idx:]
-    print(f"  Train: {len(train_steps)}, Val: {len(val_steps)}")
+    # Train/val split — TRAJECTORY-LEVEL, leak-free, deterministic in
+    # SPLIT_SEED (independent of training seed). Replaces the old
+    # step-level shuffle which leaked steps of one trajectory across
+    # train/val (POSTMORTEM #7).
+    train_steps, val_steps, val_traj_ids = trajectory_level_split(
+        all_steps, val_frac=val_split, split_seed=SPLIT_SEED
+    )
+    print(f"  Train: {len(train_steps)}, Val: {len(val_steps)}  "
+          f"(val trajectories: {len(val_traj_ids)}, split_seed={SPLIT_SEED})")
+
+    # Persist the held-out trajectory ids next to the checkpoint (NOT in
+    # the state_dict — separate explicit file). eval_neural reads this and
+    # fails loud if absent: the eval set is an explicit dependency, never
+    # a re-derived guess.
+    _sp = Path(save_dir)
+    _sp.mkdir(parents=True, exist_ok=True)
+    with open(_sp / "val_traj_ids.json", "w", encoding="utf-8") as _vf:
+        json.dump({"split_seed": SPLIT_SEED, "val_frac": val_split,
+                   "n_val": len(val_traj_ids), "val_traj_ids": val_traj_ids},
+                  _vf)
 
     # Dataset bias check
     action_dist = defaultdict(int)
