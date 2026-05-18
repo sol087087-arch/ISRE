@@ -47,15 +47,34 @@ from isre.learning.policy import PolicyNetwork
 _ACT = {a.value: a for a in ActionType}
 
 
-def load_model(ckpt_path: str, hidden_dim: int, num_rounds: int, device: str):
+def load_model(ckpt_path: str, hidden_dim: int, num_rounds: int, device: str,
+               policy_kind: str = "mlp", kan_hidden: int = 16):
+    ck = torch.load(ckpt_path, map_location=device)
+    if policy_kind == "kan":
+        # KAN arm: NO encoder. enc is returned as None and every scoring
+        # helper below branches on that. State is a plain torch state_dict
+        # of the pykan KAN (saved by train.py).
+        from isre.learning.kan_policy import KANPolicy
+        pol = KANPolicy(hidden=kan_hidden, device=device)
+        pol.load_state_dict(ck["policy"])
+        return None, pol
     enc = ASTEncoder(hidden_dim=hidden_dim, num_rounds=num_rounds).to(device)
     pol = PolicyNetwork(node_emb_dim=hidden_dim * 2, variant="mlp",
                         hidden_dim=hidden_dim).to(device)
-    ck = torch.load(ckpt_path, map_location=device)
     enc.load_state_dict(ck["encoder"])
     pol.load_state_dict(ck["policy"])
     enc.eval(); pol.eval()
     return enc, pol
+
+
+def _score(enc, pol, root: ASTNode, cand):
+    """Model-agnostic scoring. MLP: enc(root) -> pol(emb, cand).
+    KAN (enc is None): pol.score(root, cand) over hand-crafted features."""
+    if enc is None:
+        root.mark_dirty(); root._rebuild_parents()
+        return pol.score(root, cand)
+    emb, _ = enc(root)
+    return pol(emb, cand)
 
 
 @torch.no_grad()
@@ -64,8 +83,7 @@ def _argmax_action(enc, pol, root: ASTNode, engine: SymbolicEngine):
     if not cands_raw:
         return None, None, []
     cand = [(nid, a) for nid, _, a in cands_raw]
-    emb, _ = enc(root)
-    scores = pol(emb, cand)
+    scores = _score(enc, pol, root, cand)
     if scores.numel() == 0:
         return None, None, cand
     idx = int(torch.argmax(scores).item())
@@ -123,8 +141,7 @@ def beam_rollout(enc, pol, start: ASTNode, canon_expr: str,
             if not craw:
                 continue
             cand = [(nid, a) for nid, _, a in craw]
-            emb, _ = enc(node)
-            scores = pol(emb, cand)
+            scores = _score(enc, pol, node, cand)
             if scores.numel() == 0:
                 continue
             logps = F.log_softmax(scores, dim=-1)
@@ -177,6 +194,12 @@ def main():
                     help="MODE A beam width (1 = greedy; beam-1 must "
                          "reproduce greedy exactly — built-in correctness gate)")
     ap.add_argument("--device", default="auto")
+    ap.add_argument("--policy", choices=["mlp", "kan"], default="mlp",
+                    help="mlp = GRU encoder + MLP (default, unchanged). "
+                         "kan = KAN over hand-crafted features (no encoder).")
+    ap.add_argument("--kan-hidden", type=int, default=16,
+                    help="KAN hidden width; must match training. "
+                         "Only used when --policy kan.")
     args = ap.parse_args()
 
     device = ("cuda" if torch.cuda.is_available() else "cpu") \
@@ -184,7 +207,8 @@ def main():
     print(f"Device: {device}  ckpt: {args.ckpt}  hidden: {args.hidden_dim}  "
           f"MODE-A: {'greedy' if args.beam <= 1 else f'beam-{args.beam}'}")
 
-    enc, pol = load_model(args.ckpt, args.hidden_dim, args.num_rounds, device)
+    enc, pol = load_model(args.ckpt, args.hidden_dim, args.num_rounds, device,
+                          policy_kind=args.policy, kan_hidden=args.kan_hidden)
     engine = SymbolicEngine()
 
     bfs_dir = Path(args.bfs_data)

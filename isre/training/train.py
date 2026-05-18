@@ -27,6 +27,8 @@ from isre.symbolic.symbolic_engine import SymbolicEngine, ActionType
 
 from isre.learning.encoder import ASTEncoder
 from isre.learning.policy import PolicyNetwork
+# KANPolicy is imported lazily inside train() only when --policy kan, so the
+# default MLP path never pays the pykan import cost / dependency.
 
 
 # ====================== DATA LOADING ======================
@@ -291,13 +293,21 @@ class Trainer:
         weight_decay: float = 1e-4,
         device: str = "cpu",
     ):
-        self.encoder = encoder.to(device)
+        # encoder is None for the KAN arm (KAN scores hand-crafted features
+        # directly from the AST state — no GRU encoder). All MLP-path
+        # behaviour below is byte-identical when encoder is not None.
+        self.encoder = encoder.to(device) if encoder is not None else None
         self.policy = policy.to(device)
         self.device = device
 
+        if self.encoder is not None:
+            trainable = list(encoder.parameters()) + list(policy.parameters())
+        else:
+            trainable = list(policy.parameters())
+
         # Single optimizer for both encoder and policy
         self.optimizer = optim.AdamW(
-            list(encoder.parameters()) + list(policy.parameters()),
+            trainable,
             lr=lr,
             weight_decay=weight_decay,
         )
@@ -313,7 +323,8 @@ class Trainer:
         accumulation_steps: int = 8,
     ) -> EpochMetrics:
         """Train one epoch with temperature-weighted curriculum sampling."""
-        self.encoder.train()
+        if self.encoder is not None:
+            self.encoder.train()
         self.policy.train()
 
         metrics = EpochMetrics()
@@ -353,8 +364,13 @@ class Trainer:
             scaled_loss.backward()
 
             if (i + 1) % accumulation_steps == 0:
+                if self.encoder is not None:
+                    _clip_params = (list(self.encoder.parameters())
+                                    + list(self.policy.parameters()))
+                else:
+                    _clip_params = list(self.policy.parameters())
                 nn.utils.clip_grad_norm_(
-                    list(self.encoder.parameters()) + list(self.policy.parameters()),
+                    _clip_params,
                     max_norm=1.0,
                 )
                 self.optimizer.step()
@@ -379,11 +395,15 @@ class Trainer:
     ) -> Tuple[Optional[torch.Tensor], bool, int]:
         """Process one training step. Returns (loss, top1_correct, gold_rank)."""
         try:
-            # Encode AST
-            node_embeddings, _ = self.encoder(step.ast)
-
-            # Score candidates
-            scores = self.policy(node_embeddings, step.candidate_actions)
+            if self.encoder is not None:
+                # MLP arm: encode AST then score embeddings (UNCHANGED).
+                node_embeddings, _ = self.encoder(step.ast)
+                scores = self.policy(node_embeddings, step.candidate_actions)
+            else:
+                # KAN arm: score hand-crafted features from the STATE.
+                step.ast.mark_dirty()
+                step.ast._rebuild_parents()
+                scores = self.policy.score(step.ast, step.candidate_actions)
 
             if scores.numel() == 0:
                 return None, False, 0
@@ -417,7 +437,8 @@ class Trainer:
     @torch.no_grad()
     def evaluate(self, steps: List[TrainingStep]) -> EpochMetrics:
         """Evaluate on a set of steps (no gradient)."""
-        self.encoder.eval()
+        if self.encoder is not None:
+            self.encoder.eval()
         self.policy.eval()
 
         metrics = EpochMetrics()
@@ -455,6 +476,8 @@ def train(
     accumulation_steps: int = 8,
     save_dir: str = "checkpoints",
     seed: int = 0,
+    policy_kind: str = "mlp",
+    kan_hidden: int = 16,
 ):
     if device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -511,18 +534,30 @@ def train(
         print(f"    {action}: {count} ({count/total:.1%})")
 
     # ── Build model ────────────────────────────────────
-    encoder = ASTEncoder(hidden_dim=hidden_dim, num_rounds=num_rounds)
-    policy = PolicyNetwork(
-        node_emb_dim=hidden_dim * 2,
-        variant="mlp",
-        hidden_dim=hidden_dim,
-    )
+    if policy_kind == "kan":
+        # KAN arm: NO GRU encoder. KAN scores hand-crafted per-candidate
+        # features straight from the AST state. Matched-PROTOCOL (same
+        # data/split/curriculum/seed) NOT matched-input — deliberate, locked.
+        from isre.learning.kan_policy import KANPolicy
+        encoder = None
+        policy = KANPolicy(hidden=kan_hidden, seed=seed, device=device)
+        print(f"  Policy: KAN width=[{policy.feature_dim},{kan_hidden},1]")
+        total_params = sum(p.numel() for p in policy.parameters())
+        print(f"  Policy params:  {total_params:,}")
+        print(f"  Total params:   {total_params:,}")
+    else:
+        encoder = ASTEncoder(hidden_dim=hidden_dim, num_rounds=num_rounds)
+        policy = PolicyNetwork(
+            node_emb_dim=hidden_dim * 2,
+            variant="mlp",
+            hidden_dim=hidden_dim,
+        )
 
-    total_params = sum(p.numel() for p in encoder.parameters()) + \
-                   sum(p.numel() for p in policy.parameters())
-    print(f"  Encoder params: {sum(p.numel() for p in encoder.parameters()):,}")
-    print(f"  Policy params:  {sum(p.numel() for p in policy.parameters()):,}")
-    print(f"  Total params:   {total_params:,}")
+        total_params = sum(p.numel() for p in encoder.parameters()) + \
+                       sum(p.numel() for p in policy.parameters())
+        print(f"  Encoder params: {sum(p.numel() for p in encoder.parameters()):,}")
+        print(f"  Policy params:  {sum(p.numel() for p in policy.parameters()):,}")
+        print(f"  Total params:   {total_params:,}")
 
     # ── Trainer ────────────────────────────────────────
     trainer = Trainer(
@@ -563,13 +598,20 @@ def train(
         # Save best
         if val_metrics.avg_loss < best_val_loss:
             best_val_loss = val_metrics.avg_loss
-            torch.save({
+            ckpt = {
                 "epoch": epoch,
-                "encoder": encoder.state_dict(),
                 "policy": policy.state_dict(),
                 "optimizer": trainer.optimizer.state_dict(),
                 "val_loss": best_val_loss,
-            }, save_path / "best.pt")
+                "policy_kind": policy_kind,
+            }
+            # MLP arm keeps the exact original key set (encoder present);
+            # KAN arm has no encoder.
+            if encoder is not None:
+                ckpt["encoder"] = encoder.state_dict()
+            else:
+                ckpt["kan_hidden"] = kan_hidden
+            torch.save(ckpt, save_path / "best.pt")
             print(f"  SAVED best model (val_loss={best_val_loss:.4f})")
 
     print(f"\nTraining complete. Best val loss: {best_val_loss:.4f}")
@@ -594,6 +636,13 @@ if __name__ == "__main__":
                         help="Global seed (random+torch+cuda). The 5-seed "
                              "campaign varies ONLY this; curriculum schedule "
                              "stays identical across seeds.")
+    parser.add_argument("--policy", choices=["mlp", "kan"], default="mlp",
+                        help="mlp = GRU encoder + MLP (baseline, default, "
+                             "byte-identical to pre-KAN). kan = KAN over "
+                             "hand-crafted candidate features (no encoder).")
+    parser.add_argument("--kan-hidden", type=int, default=16,
+                        help="KAN hidden width (width=[FEATURE_DIM,H,1]). "
+                             "Only used when --policy kan.")
     args = parser.parse_args()
 
     train(
@@ -608,4 +657,6 @@ if __name__ == "__main__":
         accumulation_steps=args.accumulation_steps,
         save_dir=args.save_dir,
         seed=args.seed,
+        policy_kind=args.policy,
+        kan_hidden=args.kan_hidden,
     )
