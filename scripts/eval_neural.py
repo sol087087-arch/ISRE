@@ -91,6 +91,67 @@ def free_rollout(enc, pol, start: ASTNode, canon_expr: str,
     return root.to_expr() == canon_expr, max_steps
 
 
+@torch.no_grad()
+def beam_rollout(enc, pol, start: ASTNode, canon_expr: str,
+                 engine: SymbolicEngine, max_steps: int, beam_k: int):
+    """Width-K beam search free rollout.
+
+    Spec (reviewer): score aggregation = SUM of per-step log-probs (not
+    product/avg — avoids degeneracy). Each beam carries (state, cum_logp,
+    order-sensitive visited set for the POSTMORTEM loop guard). At each
+    depth: expand every beam over engine candidates, score via
+    log_softmax(policy), goal-test ALL expanded children (a canonical
+    child = solution at this depth = shortest, since every beam advances
+    one step/iter), else dedup children by to_expr() keeping the higher
+    cum_logp, keep top-K. Success = any beam-child reaches canonical;
+    steps = that depth (minimal across beams by construction).
+
+    beam_k=1 reduces EXACTLY to greedy free_rollout (single beam, top-1 by
+    this step's log-prob = argmax of scores). Verified as a correctness gate.
+    """
+    import torch.nn.functional as F
+    r0 = start.clone(); r0.mark_dirty(); r0._rebuild_parents()
+    e0 = r0.to_expr()
+    if e0 == canon_expr:
+        return True, 0
+    beams = [(r0, 0.0, {e0})]               # (node, cum_logp, visited)
+
+    for step in range(1, max_steps + 1):
+        pool = []                            # (cum_child, expr, child, visited')
+        for node, cum, visited in beams:
+            craw = engine.get_candidates(node)
+            if not craw:
+                continue
+            cand = [(nid, a) for nid, _, a in craw]
+            emb, _ = enc(node)
+            scores = pol(emb, cand)
+            if scores.numel() == 0:
+                continue
+            logps = F.log_softmax(scores, dim=-1)
+            for j, (nid, a) in enumerate(cand):
+                child = engine.apply(node, nid, a)
+                ce = child.to_expr()
+                if ce in visited:            # this path loops -> dead child
+                    continue
+                pool.append((cum + float(logps[j].item()), ce, child,
+                             visited | {ce}))
+        if not pool:
+            return False, step               # every beam dead/looping
+        # goal test on expansion (shortest: first depth any beam hits canon)
+        for cum, ce, child, vis in pool:
+            if ce == canon_expr:
+                return True, step
+        # dedup by state, keep higher cum_logp; then top-K
+        best = {}
+        for cum, ce, child, vis in pool:
+            if ce not in best or cum > best[ce][0]:
+                best[ce] = (cum, child, vis)
+        ranked = sorted(best.values(), key=lambda x: x[0], reverse=True)
+        beams = [(child, cum, vis) for cum, child, vis in ranked[:beam_k]]
+
+    return False, max_steps
+
+
 def quantiles(xs):
     if not xs:
         return {}
@@ -112,12 +173,16 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--max-steps", type=int, default=30)
     ap.add_argument("--n", type=int, default=2000, help="cap eval trajectories")
+    ap.add_argument("--beam", type=int, default=1,
+                    help="MODE A beam width (1 = greedy; beam-1 must "
+                         "reproduce greedy exactly — built-in correctness gate)")
     ap.add_argument("--device", default="auto")
     args = ap.parse_args()
 
     device = ("cuda" if torch.cuda.is_available() else "cpu") \
         if args.device == "auto" else args.device
-    print(f"Device: {device}  ckpt: {args.ckpt}  hidden: {args.hidden_dim}")
+    print(f"Device: {device}  ckpt: {args.ckpt}  hidden: {args.hidden_dim}  "
+          f"MODE-A: {'greedy' if args.beam <= 1 else f'beam-{args.beam}'}")
 
     enc, pol = load_model(args.ckpt, args.hidden_dim, args.num_rounds, device)
     engine = SymbolicEngine()
@@ -162,8 +227,13 @@ def main():
         canon = b["canonical_expr"]
         bfs_len = b["difficulty"]         # = BFS-optimal by construction
 
-        # ---- MODE A: free rollout ----
-        ok, steps = free_rollout(enc, pol, start, canon, engine, args.max_steps)
+        # ---- MODE A: free rollout (greedy if beam==1, else beam-K) ----
+        if args.beam <= 1:
+            ok, steps = free_rollout(enc, pol, start, canon, engine,
+                                     args.max_steps)
+        else:
+            ok, steps = beam_rollout(enc, pol, start, canon, engine,
+                                     args.max_steps, args.beam)
         if ok:
             succ += 1
             overheads.append(steps - bfs_len)

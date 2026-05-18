@@ -190,14 +190,29 @@ subtree_size, parent_type_onehot, action_type_onehot). MLP остаётся с G
 
 ## Текущий статус
 
-- [x] Engine: 7 багов ENGINE_GAP исправлены (0% ENGINE_GAP на n=500)
-- [x] Датасет v4 (в процессе): 50K, все 10 action types вкл. SORT_COMMUTATIVE (14.3%), 0% cycles
-- [x] Baselines: random 98.8%±0.2%, greedy 100% (n=1000, новый датасет)
-- [x] Policy: ValueError на missing gold; корректный log_prob в greedy
-- [ ] BFS baseline + измерение реального solve rate
-- [ ] MLP train run на датасете v4 (предыдущий на v2 — невалидный)
-- [ ] Day 7: KAN mini-experiment на синтетических scalar inputs
-- [ ] KAN head: реализовать с hand-crafted features (не GRU bottleneck)
-- [ ] 5-seed runs для MLP-full, MLP-narrow, MLP-shallow, KAN
-- [ ] Evaluation/rollout script (success_rate, loop_rate, step_overhead)
-- [ ] Activation visualization для KAN φ_i
+Данные/движок (полная цепочка, см. POSTMORTEM):
+- [x] Engine заморожен (`engine-frozen-v1.1`), 7 ENGINE_GAP-багов + критика-фиксы
+- [x] Датасет v6 (`dataset-v6-validated`): v6_bfs 48428 (gold=BFS-оптимум,
+      0% broken, 0% cycles, 10/10 действий) + v6_recorded (naive arm, спарен)
+- [x] BFS baseline + bfs_optimal_path; baselines random 98.5% / greedy 100%
+- [x] Per-index seeding (paired ablation); curriculum temperature-weighted
+      (4-проверочная panel); global `--seed`; CAMPAIGN_SEEDS=[0,1,2,3,42]
+- [x] Encoder векторизован (6.1x, eval-exact-equivalent, regression-тест)
+- [x] **Trajectory-level leak-free split** (POSTMORTEM #7): val_traj_ids.json
+      shared train↔eval, fail-loud, SPLIT_SEED=1234
+
+Experiment 1 — primary finding УСТАНОВЛЕН (контролируемо, leak-free):
+- [x] 128-full vs 512-full, единственная переменная hidden_dim →
+      **capacity НЕ боттлнек** (512 хуже 128 по всем 10 метрикам)
+- [x] gold-rank diagnostic → **representation НЕ боттлнек** (mean 1.23)
+- [x] beam{1,2,3,5} eval (без ретрейна) → **decoding ЕСТЬ боттлнек**:
+      overhead 0.129→0.011, bfs_optimal 91.8%→99.2% @ beam-5
+- [x] eval_neural харнесс (MODE A rollout+beam / MODE B 3-way divergence)
+
+Осталось (compute, ждёт go):
+- [ ] (b) KAN-vs-MLP на **hidden=128** (точка насыщения) + beam-инференс —
+      реальный Experiment 1; KAN с hand-crafted features (не GRU bottleneck)
+- [ ] (d) 5-seed [1,2,3,42] с beam для mean±std на headline
+- [ ] (c) опц. 256 — scaling-кривая 128/256/512
+- [ ] Day 7: KAN mini-experiment на синтетических scalar inputs (до (b))
+- [ ] Activation visualization для KAN φ_i (subgradient-equivalent fork-структура)
