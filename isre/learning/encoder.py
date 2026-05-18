@@ -87,6 +87,240 @@ class ASTEncoder(nn.Module):
 
     def forward(self, ast: ASTNode) -> Tuple[torch.Tensor, torch.Tensor]:
         """
+        Vectorized Tree-GRU encoder. Public interface.
+
+        Numerically equivalent to _forward_reference (the equivalence oracle):
+        in eval mode the two agree to torch.allclose(atol=1e-5, rtol=1e-4) on
+        both outputs; the only differences are float non-associativity from
+        batched reductions (~1e-6) and, in train mode only, dropout sampling.
+
+        Args:
+            ast: root ASTNode
+
+        Returns:
+            node_embeddings: [num_nodes, hidden_dim * 2] — concat(local, global) per node
+            global_context:  [hidden_dim]
+        """
+        device = self.device
+        H = self.hidden_dim
+
+        # ── Step 0: collect nodes (id scheme MUST match reference) ──────────
+        # node_to_id keys by structural value (ASTNode __eq__/__hash__ are
+        # structural), exactly as the reference does. Index i corresponds to
+        # list(ast.iter_preorder())[i].
+        # NOTE: ASTNode __eq__/__hash__ are structural, so node_to_id collapses
+        # structurally-equal nodes to a single id (the LAST preorder index seen
+        # for that structural key) — identical to the reference. num_nodes is
+        # the full postorder/preorder count (matches reference len(postorder));
+        # ids that never get written stay zero in both paths.
+        postorder: List[ASTNode] = list(ast.iter_postorder())
+        node_to_id = {node: i for i, node in enumerate(ast.iter_preorder())}
+        num_nodes = len(postorder)
+
+        # ── Step 1: initial embeddings, fully batched ──────────────────────
+        # Build per-id arrays. Because node_to_id collapses structurally-equal
+        # nodes, we resolve each id back to a representative node the same way
+        # the reference's h[nid] = ... last-writer-wins does: it iterates
+        # postorder and writes h[node_to_id[node]], so for each id the LAST
+        # postorder node mapping to it wins. We mirror that exactly. ids that
+        # never appear (collapsed away) keep rep[i] = None -> zero rows, which
+        # also matches the reference (those h rows are never written).
+
+        # Representative node per id following reference postorder last-write.
+        rep: List[Optional[ASTNode]] = [None] * num_nodes
+        for node in postorder:
+            rep[node_to_id[node]] = node
+
+        # Only ids that actually appear get a Step-1 embedding; the rest stay
+        # zero (matches the reference, where unwritten h rows remain zero).
+        active_ids = [i for i in range(num_nodes) if rep[i] is not None]
+        n_active = len(active_ids)
+        t_active = torch.tensor(active_ids, device=device, dtype=torch.long)
+
+        type_idx = torch.tensor(
+            [self._type_index(rep[i].node_type) for i in active_ids],
+            device=device, dtype=torch.long,
+        )
+        type_mat = self.type_embedding(type_idx)  # [n_active, H]
+
+        # Value embedding matrix by category, same index math as _value_embedding.
+        val_mat = torch.zeros(n_active, H, device=device)
+        num_rows, num_idx_list = [], []
+        var_rows, var_idx_list = [], []
+        for row, i in enumerate(active_ids):
+            n = rep[i]
+            if n.node_type == NodeType.NUMBER:
+                num_rows.append(row)
+                num_idx_list.append(self._coeff_index(n))
+            elif n.node_type == NodeType.VARIABLE:
+                var_rows.append(row)
+                var_idx_list.append(self._var_index(n))
+            # CONST / operators -> zeros (already set)
+        if num_rows:
+            val_mat[torch.tensor(num_rows, device=device)] = self.coeff_embedding(
+                torch.tensor(num_idx_list, device=device, dtype=torch.long)
+            )
+        if var_rows:
+            val_mat[torch.tensor(var_rows, device=device)] = self.var_embedding(
+                torch.tensor(var_idx_list, device=device, dtype=torch.long)
+            )
+
+        h = torch.zeros(num_nodes, H, device=device)
+        h[t_active] = self.init_proj(torch.cat([type_mat, val_mat], dim=1))
+
+        # ── Step 2 precompute: category groups + child structure ───────────
+        # Categories are fixed across rounds (node types don't change).
+        #
+        # The reference loops postorder writing h_new[node_to_id[node]]; with
+        # structural id collapse multiple postorder nodes can share an id and
+        # the LAST one wins. rep[id] already holds that last-postorder node,
+        # so we key every group by UNIQUE id and use rep[id] for both the
+        # category decision and its children — this exactly reproduces the
+        # reference's last-writer-wins net result per id.
+        leaf_ids: List[int] = []          # no children
+        comm_ids: List[int] = []          # ADD/MUL with children
+        pow_ids: List[int] = []           # POW with exactly 2 children
+        fb_ids: List[int] = []            # fallback: other with children
+        pow_left: List[int] = []
+        pow_right: List[int] = []
+
+        for i in active_ids:
+            node = rep[i]
+            children_ids = [node_to_id[c] for c in node.children]
+            if not children_ids:
+                leaf_ids.append(i)
+            elif node.node_type in (NodeType.ADD, NodeType.MUL):
+                comm_ids.append(i)
+            elif node.node_type == NodeType.POW and len(children_ids) == 2:
+                pow_ids.append(i)
+                pow_left.append(children_ids[0])
+                pow_right.append(children_ids[1])
+            else:
+                fb_ids.append(i)
+
+        # Ragged child segments for commutative pool (mean+max).
+        seg_parent_rows: List[int] = []
+        seg_child_global: List[int] = []
+        for row, nid in enumerate(comm_ids):
+            for c in rep[nid].children:
+                seg_parent_rows.append(row)
+                seg_child_global.append(node_to_id[c])
+        n_comm = len(comm_ids)
+
+        # Ragged child segments for fallback pool (mean only).
+        fb_seg_parent_rows: List[int] = []
+        fb_seg_child_global: List[int] = []
+        for row, nid in enumerate(fb_ids):
+            for c in rep[nid].children:
+                fb_seg_parent_rows.append(row)
+                fb_seg_child_global.append(node_to_id[c])
+        n_fb = len(fb_ids)
+
+        # Tensors for scatter/index ops (built once).
+        t_leaf = torch.tensor(leaf_ids, device=device, dtype=torch.long) if leaf_ids else None
+        t_comm = torch.tensor(comm_ids, device=device, dtype=torch.long) if comm_ids else None
+        t_pow = torch.tensor(pow_ids, device=device, dtype=torch.long) if pow_ids else None
+        t_fb = torch.tensor(fb_ids, device=device, dtype=torch.long) if fb_ids else None
+        t_pow_l = torch.tensor(pow_left, device=device, dtype=torch.long) if pow_ids else None
+        t_pow_r = torch.tensor(pow_right, device=device, dtype=torch.long) if pow_ids else None
+
+        if seg_child_global:
+            t_seg_child = torch.tensor(seg_child_global, device=device, dtype=torch.long)
+            t_seg_parent = torch.tensor(seg_parent_rows, device=device, dtype=torch.long)
+            comm_counts = torch.zeros(n_comm, 1, device=device)
+            comm_counts.index_add_(
+                0, t_seg_parent, torch.ones(len(seg_parent_rows), 1, device=device)
+            )
+        else:
+            t_seg_child = t_seg_parent = comm_counts = None
+
+        if fb_seg_child_global:
+            t_fb_child = torch.tensor(fb_seg_child_global, device=device, dtype=torch.long)
+            t_fb_parent = torch.tensor(fb_seg_parent_rows, device=device, dtype=torch.long)
+            fb_counts = torch.zeros(n_fb, 1, device=device)
+            fb_counts.index_add_(
+                0, t_fb_parent, torch.ones(len(fb_seg_parent_rows), 1, device=device)
+            )
+        else:
+            t_fb_child = t_fb_parent = fb_counts = None
+
+        # ── Step 2: multi-round bottom-up message passing (batched) ────────
+        for _ in range(self.num_rounds):
+            h_new = h.clone()
+
+            # Leaf category: zero aggregation input, gru_leaf.
+            if t_leaf is not None:
+                agg_leaf = torch.zeros(t_leaf.shape[0], H, device=device)
+                h_prev = h.index_select(0, t_leaf)
+                upd = self.gru_leaf(agg_leaf, h_prev)
+                upd = upd + h_prev
+                upd = self.layer_norm(upd)
+                upd = self.dropout(upd)
+                h_new[t_leaf] = upd
+
+            # Commutative category: mean + max pool over ragged children.
+            if t_comm is not None:
+                child_h = h.index_select(0, t_seg_child)  # [E, H]
+                mean_sum = torch.zeros(n_comm, H, device=device)
+                mean_sum.index_add_(0, t_seg_parent, child_h)
+                mean_pool = mean_sum / comm_counts
+                # segment max (every commutative node has >=2 children, so
+                # every row receives >=1 value; -inf init is always overwritten)
+                max_pool = torch.full((n_comm, H), float("-inf"), device=device)
+                idx_exp = t_seg_parent.unsqueeze(1).expand(-1, H)
+                max_pool = max_pool.scatter_reduce(
+                    0, idx_exp, child_h, reduce="amax", include_self=True
+                )
+                agg = self.agg_commutative(torch.cat([mean_pool, max_pool], dim=1))
+                h_prev = h.index_select(0, t_comm)
+                upd = self.gru_commutative(agg, h_prev)
+                upd = upd + h_prev
+                upd = self.layer_norm(upd)
+                upd = self.dropout(upd)
+                h_new[t_comm] = upd
+
+            # POW category: concat(left, right), order preserved.
+            if t_pow is not None:
+                left = h.index_select(0, t_pow_l)
+                right = h.index_select(0, t_pow_r)
+                agg = self.agg_binary(torch.cat([left, right], dim=1))
+                h_prev = h.index_select(0, t_pow)
+                upd = self.gru_binary(agg, h_prev)
+                upd = upd + h_prev
+                upd = self.layer_norm(upd)
+                upd = self.dropout(upd)
+                h_new[t_pow] = upd
+
+            # Fallback category: mean pool only, gru_commutative.
+            if t_fb is not None:
+                child_h = h.index_select(0, t_fb_child)
+                mean_sum = torch.zeros(n_fb, H, device=device)
+                mean_sum.index_add_(0, t_fb_parent, child_h)
+                agg = mean_sum / fb_counts
+                h_prev = h.index_select(0, t_fb)
+                upd = self.gru_commutative(agg, h_prev)
+                upd = upd + h_prev
+                upd = self.layer_norm(upd)
+                upd = self.dropout(upd)
+                h_new[t_fb] = upd
+
+            h = h_new
+
+        # ── Step 3: global context from root ───────────────────────────────
+        root_id = node_to_id[ast]
+        global_context = self.global_proj(h[root_id])
+
+        # ── Step 4: broadcast — concat(local, global) per node ─────────────
+        global_expanded = global_context.unsqueeze(0).expand(num_nodes, -1)
+        node_embeddings = torch.cat([h, global_expanded], dim=1)
+
+        return node_embeddings, global_context
+
+    def _forward_reference(self, ast: ASTNode) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Golden per-node reference. Kept as the equivalence oracle for the
+        vectorized forward. Do not modify.
+
         Args:
             ast: root ASTNode
 
@@ -176,19 +410,33 @@ class ASTEncoder(nn.Module):
 
     # ── Helpers ────────────────────────────────────────────────
 
+    @staticmethod
+    def _coeff_index(node: ASTNode) -> int:
+        """Coefficient embedding index for a NUMBER node.
+        Pure extraction of the NUMBER index math from _value_embedding —
+        behavior-identical, shared by reference and vectorized paths."""
+        try:
+            val = int(float(node.value))
+            return max(0, min(NUM_COEFF_VALUES - 1, val - COEFF_MIN))
+        except (ValueError, TypeError):
+            return NUM_COEFF_VALUES // 2  # map unknown to 0
+
+    @staticmethod
+    def _var_index(node: ASTNode) -> int:
+        """Variable embedding index for a VARIABLE node.
+        Pure extraction of the VARIABLE index math from _value_embedding —
+        behavior-identical, shared by reference and vectorized paths."""
+        var_map = {"x": 0, "y": 1, "z": 2}
+        return var_map.get(node.value, 3)
+
     def _value_embedding(self, node: ASTNode, device: torch.device) -> torch.Tensor:
         """Discrete value embedding for leaf nodes. Zero for operators."""
         if node.node_type == NodeType.NUMBER:
-            try:
-                val = int(float(node.value))
-                idx = max(0, min(NUM_COEFF_VALUES - 1, val - COEFF_MIN))
-            except (ValueError, TypeError):
-                idx = NUM_COEFF_VALUES // 2  # map unknown to 0
+            idx = self._coeff_index(node)
             return self.coeff_embedding(torch.tensor(idx, device=device))
 
         if node.node_type == NodeType.VARIABLE:
-            var_map = {"x": 0, "y": 1, "z": 2}
-            idx = var_map.get(node.value, 3)
+            idx = self._var_index(node)
             return self.var_embedding(torch.tensor(idx, device=device))
 
         if node.node_type == NodeType.CONST:
