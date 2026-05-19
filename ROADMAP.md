@@ -278,4 +278,13 @@ Experiment 1 — primary finding УСТАНОВЛЕН (контролируем�
       postacts (std dof≤0→alpha nan), NOT a pykan defect. Fix = representative
       large-batch forward immediately before `.plot()` (pattern locked for (b)).
       Artifacts: phi_recovery.png (backend-independent) + pykan native sp_*.png.
+- [~] KAN arm (b): smoke GREEN on 4 axes — matched-protocol EXACT (4843,
+      split_seed=1234, == MLP@128), real KAN 7752p (not stub), val_acc
+      0.768@e1 (≈ MLP@e6-8), φ smooth <0.5% roughness@e1. BLOCKER:
+      7.24h/epoch (24x MLP) → plan infeasible as-is. NEXT: profile +
+      vectorize KAN hot-path with equivalence-gate (encoder-precedent 6x),
+      then reduced-epoch full + ladder {32,64,128}. NOT param-matched by
+      design (KAN 7.7k vs MLP 475k: MLP=416k learned-encoder+58k head;
+      KAN replaces encoder with 27 hand features — matched-PROTOCOL,
+      capacity already controlled separately via 128≥512).
 - [ ] Activation visualization для KAN φ_i (subgradient-equivalent fork-структура)
