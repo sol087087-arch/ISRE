@@ -4,13 +4,21 @@ KAN policy head over hand-crafted per-candidate features.
 This is the KAN arm of the matched-PROTOCOL KAN-vs-MLP experiment. It does
 NOT use the GRU encoder. Each candidate (node_id, ActionType) is turned
 into a fixed FEATURE_DIM vector by isre.learning.features.candidate_features,
-and a pykan KAN with width=[FEATURE_DIM, hidden, 1] scores it.
+and an efficient_kan KAN with layers=[FEATURE_DIM, hidden, 1] scores it.
+
+BACKEND: efficient_kan (NOT pykan). The swap is matched-PROTOCOL, not
+matched-params: efficient_kan KAN([27,16,1]) is ~4480 params vs pykan's
+7752 at hidden=16 — a DIFFERENT spline parameterization/init, EXPECTED
+and locked. allclose-vs-pykan is the wrong gate by construction; the
+verification regime is T1+T2+Day7-on-efficient-kan+matched-protocol+
+re-profile. efficient_kan KAN is a plain nn.Module: forward
+[N,FEATURE_DIM]->[N,1], native .parameters()/.state_dict().
 
 Usage mirrors PolicyNetwork so train/eval can be model-agnostic:
   - .score(state_root, candidates)            -> Tensor [n_candidates]
   - .compute_loss(state_root, candidates,
                    gold_action, gold_node_id)  -> scalar CE loss
-  - .parameters()                              -> pykan KAN params (optimizer)
+  - .parameters()                              -> efficient_kan params (optimizer)
   - .select_action(...)                        -> (node_id, action, log_prob)
   - .phi_curves(out_dir)                       -> interpretability plots
 
@@ -35,11 +43,12 @@ from isre.learning.features import (
 
 
 class KANPolicy(nn.Module):
-    """pykan KAN scorer over hand-crafted candidate features.
+    """efficient_kan KAN scorer over hand-crafted candidate features.
 
-    width = [FEATURE_DIM, hidden, 1]. The KAN is a real pykan model; its
-    parameters flow through a standard torch optimizer (verified by
-    scripts/test_kan_trains.py: loss decreases and KAN params get grads).
+    layers = [FEATURE_DIM, hidden, 1]. The KAN is a real efficient_kan
+    model (plain nn.Module); its parameters flow through a standard torch
+    optimizer (verified by scripts/test_kan_trains.py: loss decreases and
+    KAN params get grads).
     """
 
     def __init__(
@@ -53,24 +62,30 @@ class KANPolicy(nn.Module):
     ):
         super().__init__()
         # Import here so the rest of the project (MLP path) never pays the
-        # pykan import cost / dependency unless KAN is actually requested.
-        from kan import KAN
+        # efficient_kan import cost / dependency unless KAN is actually
+        # requested. Signature preserved (grid/k/seed/ckpt_path) so
+        # train.py / eval_neural.py need ZERO changes; grid->grid_size,
+        # k->spline_order map onto efficient_kan kwargs (defaults 5/3
+        # match the old pykan defaults).
+        from efficient_kan import KAN
+
+        # Deterministic init from `seed` (efficient_kan has no seed kw; it
+        # inits with torch RNG at construction time).
+        torch.manual_seed(seed)
 
         self.feature_dim = FEATURE_DIM
         self.hidden = hidden
         self._device = device
 
-        # auto_save=False: we checkpoint via torch.save(state_dict) ourselves
-        # (train.py / eval_neural.py), not pykan's versioned auto-saver.
+        # efficient_kan KAN takes a layers-list as first positional arg
+        # (layers_hidden) plus grid_size/spline_order kwargs. _ = ckpt_path
+        # kept for call-surface compatibility; we checkpoint via
+        # torch.save(state_dict) ourselves (train.py / eval_neural.py).
         self.kan = KAN(
-            width=[FEATURE_DIM, hidden, 1],
-            grid=grid,
-            k=k,
-            seed=seed,
-            device=device,
-            auto_save=False,
-            ckpt_path=ckpt_path,
-        )
+            [FEATURE_DIM, hidden, 1],
+            grid_size=grid,
+            spline_order=k,
+        ).to(device)
 
     # ---- internal: build feature matrix for candidates --------------------
 
@@ -162,7 +177,8 @@ class KANPolicy(nn.Module):
         # self.kan is a registered submodule (nn.Module), so the default
         # nn.Module.parameters() already yields its params. We override
         # explicitly to make the contract obvious and to guarantee the
-        # optimizer trains the KAN even if pykan changes its registration.
+        # optimizer trains the KAN. efficient_kan KAN is a native
+        # nn.Module so this delegates directly.
         return self.kan.parameters(recurse=recurse)
 
     # ---- checkpoint helpers ----------------------------------------------
@@ -176,16 +192,15 @@ class KANPolicy(nn.Module):
     # ---- interpretability: phi curves ------------------------------------
 
     def phi_curves(self, out_dir: str, n_repr: int = 512):
-        """Save interpretability artifacts to out_dir:
+        """Save interpretability artifacts to out_dir.
 
-          1. pykan native model.plot() edge figure. NOTE: pykan .plot()
-             needs a representative LARGE-batch forward IMMEDIATELY before
-             it, else it raises alpha(nan) from std dof<=0 on cached
-             postacts (known; see scripts/day7_kan_synthetic.py). We do
-             that forward here then call model.plot(folder=out_dir).
-          2. Backend-INDEPENDENT per-feature sweep plots phi_<name>.png:
-             vary one feature across its range with all others at their
-             mean, plot KAN output. Does not depend on pykan .plot().
+        efficient_kan has NO .plot()/symbolic/auto-cache. We use ONLY the
+        backend-INDEPENDENT per-feature sweep (the Day-7-validated
+        phi_recovery approach): vary one feature across its range with all
+        others held at their mean, forward the KAN, plot output vs that
+        feature. Saves phi_<idx>_<featurename>.png per feature plus a
+        combined grid figure. Zero pykan calls; cannot hit the
+        std-dof / alpha-nan path (that was pykan-only).
         """
         out = Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)
@@ -196,24 +211,20 @@ class KANPolicy(nn.Module):
 
         # Representative batch: features are mostly in [0,1] (one-hots) with
         # a few normalized scalars; sample uniformly in [0,1] as a generic
-        # representative distribution for plotting statistics.
+        # representative distribution for the "others at mean" baseline.
         repr_x = torch.rand(n_repr, FEATURE_DIM, device=self._device)
         mean_x = repr_x.mean(dim=0, keepdim=True)
 
-        # 1) pykan native plot — large forward immediately before .plot().
-        plot_note = ""
-        try:
-            with torch.no_grad():
-                self.kan(repr_x)  # repopulate cached acts (valid std)
-            self.kan.plot(folder=str(out))
-            plt.savefig(out / "pykan_native.png", dpi=110,
-                        bbox_inches="tight")
-            plt.close("all")
-            plot_note = f"pykan native: {out / 'pykan_native.png'}"
-        except Exception as e:  # nice-to-have, never fatal
-            plot_note = f"pykan native .plot() failed: {e}"
+        plot_note = (f"efficient_kan backend: backend-independent "
+                     f"per-feature phi sweeps in {out}")
 
-        # 2) Backend-independent per-feature sweeps.
+        # Backend-independent per-feature sweeps + combined grid figure.
+        import math
+        n_cols = 6
+        n_rows = math.ceil(FEATURE_DIM / n_cols)
+        cfig, caxes = plt.subplots(n_rows, n_cols,
+                                   figsize=(3 * n_cols, 2.4 * n_rows))
+        caxes = caxes.reshape(-1)
         sweep = torch.linspace(0.0, 1.0, 100, device=self._device)
         for fi in range(FEATURE_DIM):
             X = mean_x.repeat(100, 1).clone()
@@ -231,6 +242,19 @@ class KANPolicy(nn.Module):
             fig.savefig(out / f"phi_{fi:02d}_{safe}.png", dpi=110,
                         bbox_inches="tight")
             plt.close(fig)
+
+            cax = caxes[fi]
+            cax.plot(sweep.cpu().numpy(), y, "C0")
+            cax.set_title(f"[{fi}] {FEATURE_NAMES[fi]}", fontsize=7)
+            cax.tick_params(labelsize=6)
+
+        for j in range(FEATURE_DIM, len(caxes)):
+            caxes[j].axis("off")
+        cfig.suptitle("efficient_kan phi sweeps (per-feature, others@mean)")
+        cfig.tight_layout()
+        cfig.savefig(out / "phi_combined.png", dpi=110,
+                     bbox_inches="tight")
+        plt.close(cfig)
 
         return plot_note
 

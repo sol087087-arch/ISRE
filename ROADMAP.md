@@ -278,6 +278,7 @@ Experiment 1 — primary finding УСТАНОВЛЕН (контролируем�
       postacts (std dof≤0→alpha nan), NOT a pykan defect. Fix = representative
       large-batch forward immediately before `.plot()` (pattern locked for (b)).
       Artifacts: phi_recovery.png (backend-independent) + pykan native sp_*.png.
+- [x] KAN backend pykan->efficient-kan (ROADMAP-pre-registered for perf). Profiling proved 24x was pykan intrinsic spline f/b (featurize 0%), not our code. efficient_kan: independently re-verified ~60x faster (68.7->1.15ms/step), T1+T2+regressions PASS, Day-7-on-efficient-kan PASS (R^2 0.9998/0.9992, roughness 0.09% < pykan's <0.5% => phi-smoothness is a TASK property, cross-backend evidence). matched-PROTOCOL preserved (train.py/eval_neural.py zero edits). PAPER NOTE: all KAN results on efficient-kan; pykan only for Day-7 feasibility, superseded for 24x cost. BLOCKER RESOLVED -> reduced/full KAN runs now feasible.
 - [~] KAN arm (b): smoke GREEN on 4 axes — matched-protocol EXACT (4843,
       split_seed=1234, == MLP@128), real KAN 7752p (not stub), val_acc
       0.768@e1 (≈ MLP@e6-8), φ smooth <0.5% roughness@e1. BLOCKER:
