@@ -48,7 +48,9 @@ _ACT = {a.value: a for a in ActionType}
 
 
 def load_model(ckpt_path: str, hidden_dim: int, num_rounds: int, device: str,
-               policy_kind: str = "mlp", kan_hidden: int = 16):
+               policy_kind: str = "mlp", kan_hidden: int = 16,
+               policy_hidden_dim: int | None = None,
+               action_emb_dim: int | None = None):
     ck = torch.load(ckpt_path, map_location=device)
     if policy_kind == "kan":
         # KAN arm: NO encoder. enc is returned as None and every scoring
@@ -58,9 +60,20 @@ def load_model(ckpt_path: str, hidden_dim: int, num_rounds: int, device: str,
         pol = KANPolicy(hidden=kan_hidden, device=device)
         pol.load_state_dict(ck["policy"])
         return None, pol
+    hidden_dim = int(ck.get("hidden_dim", hidden_dim))
+    num_rounds = int(ck.get("num_rounds", num_rounds))
+    policy_hidden = int(ck.get(
+        "policy_hidden_dim",
+        hidden_dim if policy_hidden_dim is None else policy_hidden_dim,
+    ))
+    action_emb = int(ck.get(
+        "action_emb_dim",
+        64 if action_emb_dim is None else action_emb_dim,
+    ))
     enc = ASTEncoder(hidden_dim=hidden_dim, num_rounds=num_rounds).to(device)
     pol = PolicyNetwork(node_emb_dim=hidden_dim * 2, variant="mlp",
-                        hidden_dim=hidden_dim).to(device)
+                        hidden_dim=policy_hidden,
+                        action_emb_dim=action_emb).to(device)
     enc.load_state_dict(ck["encoder"])
     pol.load_state_dict(ck["policy"])
     enc.eval(); pol.eval()
@@ -184,6 +197,12 @@ def main():
     ap.add_argument("--ckpt", required=True)
     ap.add_argument("--hidden-dim", type=int, required=True)
     ap.add_argument("--num-rounds", type=int, default=4)
+    ap.add_argument("--policy-hidden-dim", type=int, default=None,
+                    help="MLP scorer hidden width. If present in checkpoint, "
+                         "checkpoint metadata wins.")
+    ap.add_argument("--action-emb-dim", type=int, default=None,
+                    help="MLP action embedding width. If present in checkpoint, "
+                         "checkpoint metadata wins.")
     ap.add_argument("--bfs-data", default="isre/trajectories_v6_bfs")
     ap.add_argument("--recorded-data", default="isre/trajectories_v6_recorded")
     ap.add_argument("--val-split", type=float, default=0.1)
@@ -208,7 +227,9 @@ def main():
           f"MODE-A: {'greedy' if args.beam <= 1 else f'beam-{args.beam}'}")
 
     enc, pol = load_model(args.ckpt, args.hidden_dim, args.num_rounds, device,
-                          policy_kind=args.policy, kan_hidden=args.kan_hidden)
+                          policy_kind=args.policy, kan_hidden=args.kan_hidden,
+                          policy_hidden_dim=args.policy_hidden_dim,
+                          action_emb_dim=args.action_emb_dim)
     engine = SymbolicEngine()
 
     bfs_dir = Path(args.bfs_data)

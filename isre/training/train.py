@@ -469,6 +469,8 @@ def train(
     epochs: int = 20,
     lr: float = 1e-3,
     hidden_dim: int = 128,
+    policy_hidden_dim: int = None,
+    action_emb_dim: int = 64,
     num_rounds: int = 4,
     val_split: float = 0.1,
     device: str = "auto",
@@ -546,15 +548,18 @@ def train(
         print(f"  Policy params:  {total_params:,}")
         print(f"  Total params:   {total_params:,}")
     else:
+        policy_hidden = hidden_dim if policy_hidden_dim is None else policy_hidden_dim
         encoder = ASTEncoder(hidden_dim=hidden_dim, num_rounds=num_rounds)
         policy = PolicyNetwork(
             node_emb_dim=hidden_dim * 2,
             variant="mlp",
-            hidden_dim=hidden_dim,
+            hidden_dim=policy_hidden,
+            action_emb_dim=action_emb_dim,
         )
 
         total_params = sum(p.numel() for p in encoder.parameters()) + \
                        sum(p.numel() for p in policy.parameters())
+        print(f"  Policy: MLP action_emb={action_emb_dim}, hidden={policy_hidden}")
         print(f"  Encoder params: {sum(p.numel() for p in encoder.parameters()):,}")
         print(f"  Policy params:  {sum(p.numel() for p in policy.parameters()):,}")
         print(f"  Total params:   {total_params:,}")
@@ -609,6 +614,10 @@ def train(
             # KAN arm has no encoder.
             if encoder is not None:
                 ckpt["encoder"] = encoder.state_dict()
+                ckpt["hidden_dim"] = hidden_dim
+                ckpt["num_rounds"] = num_rounds
+                ckpt["policy_hidden_dim"] = policy_hidden
+                ckpt["action_emb_dim"] = action_emb_dim
             else:
                 ckpt["kan_hidden"] = kan_hidden
             torch.save(ckpt, save_path / "best.pt")
@@ -626,6 +635,11 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--hidden-dim", type=int, default=128)
+    parser.add_argument("--policy-hidden-dim", type=int, default=None,
+                        help="MLP scorer hidden width. Defaults to --hidden-dim "
+                             "for historical runs.")
+    parser.add_argument("--action-emb-dim", type=int, default=64,
+                        help="MLP action embedding width.")
     parser.add_argument("--num-rounds", type=int, default=4)
     parser.add_argument("--val-split", type=float, default=0.1)
     parser.add_argument("--device", default="auto")
@@ -650,6 +664,8 @@ if __name__ == "__main__":
         epochs=args.epochs,
         lr=args.lr,
         hidden_dim=args.hidden_dim,
+        policy_hidden_dim=args.policy_hidden_dim,
+        action_emb_dim=args.action_emb_dim,
         num_rounds=args.num_rounds,
         val_split=args.val_split,
         device=args.device,
