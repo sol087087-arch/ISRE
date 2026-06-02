@@ -480,6 +480,10 @@ def train(
     seed: int = 0,
     policy_kind: str = "mlp",
     kan_hidden: int = 16,
+    kan_action_emb_dim: int = 8,
+    kan_bottleneck_dim: int = 16,
+    kan_grid: int = 5,
+    kan_spline_order: int = 3,
 ):
     if device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -542,10 +546,61 @@ def train(
         # data/split/curriculum/seed) NOT matched-input — deliberate, locked.
         from isre.learning.kan_policy import KANPolicy
         encoder = None
-        policy = KANPolicy(hidden=kan_hidden, seed=seed, device=device)
+        policy = KANPolicy(
+            hidden=kan_hidden,
+            grid=kan_grid,
+            k=kan_spline_order,
+            seed=seed,
+            device=device,
+        )
         print(f"  Policy: KAN width=[{policy.feature_dim},{kan_hidden},1]")
         total_params = sum(p.numel() for p in policy.parameters())
         print(f"  Policy params:  {total_params:,}")
+        print(f"  Total params:   {total_params:,}")
+    elif policy_kind == "kan_ae":
+        # Rescue arm B1: raw hand-crafted candidate features PLUS the
+        # learned action embedding that the MLP path already has.
+        # No ASTEncoder: this isolates the action-embedding asymmetry.
+        from isre.learning.kan_rescue_policy import ActionEmbeddingKANPolicy
+        encoder = None
+        policy = ActionEmbeddingKANPolicy(
+            hidden=kan_hidden,
+            action_emb_dim=kan_action_emb_dim,
+            grid=kan_grid,
+            k=kan_spline_order,
+            seed=seed,
+            device=device,
+        )
+        total_params = sum(p.numel() for p in policy.parameters())
+        print(
+            f"  Policy: KAN-AE width=[{policy.input_dim},{kan_hidden},1] "
+            f"action_emb={kan_action_emb_dim}"
+        )
+        print(f"  Policy params:  {total_params:,}")
+        print(f"  Total params:   {total_params:,}")
+    elif policy_kind == "encoder_kan":
+        # Rescue arm B3: matched learned representation family. Same
+        # ASTEncoder input side as MLP, but KAN replaces the scorer head.
+        from isre.learning.kan_rescue_policy import EncoderKANPolicy
+        encoder = ASTEncoder(hidden_dim=hidden_dim, num_rounds=num_rounds)
+        policy = EncoderKANPolicy(
+            node_emb_dim=hidden_dim * 2,
+            hidden=kan_hidden,
+            action_emb_dim=kan_action_emb_dim,
+            bottleneck_dim=kan_bottleneck_dim,
+            grid=kan_grid,
+            k=kan_spline_order,
+            seed=seed,
+        )
+
+        total_params = sum(p.numel() for p in encoder.parameters()) + \
+                       sum(p.numel() for p in policy.parameters())
+        print(
+            f"  Policy: Encoder-KAN bottleneck={kan_bottleneck_dim}, "
+            f"kan_hidden={kan_hidden}, action_emb={kan_action_emb_dim}"
+        )
+        print(f"  Encoder params: {sum(p.numel() for p in encoder.parameters()):,}")
+        print(f"  Policy params:  {sum(p.numel() for p in policy.parameters()):,}")
         print(f"  Total params:   {total_params:,}")
     else:
         policy_hidden = hidden_dim if policy_hidden_dim is None else policy_hidden_dim
@@ -616,10 +671,21 @@ def train(
                 ckpt["encoder"] = encoder.state_dict()
                 ckpt["hidden_dim"] = hidden_dim
                 ckpt["num_rounds"] = num_rounds
-                ckpt["policy_hidden_dim"] = policy_hidden
-                ckpt["action_emb_dim"] = action_emb_dim
+                if policy_kind == "mlp":
+                    ckpt["policy_hidden_dim"] = policy_hidden
+                    ckpt["action_emb_dim"] = action_emb_dim
+                else:
+                    ckpt["kan_hidden"] = kan_hidden
+                    ckpt["kan_action_emb_dim"] = kan_action_emb_dim
+                    ckpt["kan_bottleneck_dim"] = kan_bottleneck_dim
+                    ckpt["kan_grid"] = kan_grid
+                    ckpt["kan_spline_order"] = kan_spline_order
             else:
                 ckpt["kan_hidden"] = kan_hidden
+                if policy_kind == "kan_ae":
+                    ckpt["kan_action_emb_dim"] = kan_action_emb_dim
+                ckpt["kan_grid"] = kan_grid
+                ckpt["kan_spline_order"] = kan_spline_order
             torch.save(ckpt, save_path / "best.pt")
             print(f"  SAVED best model (val_loss={best_val_loss:.4f})")
 
@@ -650,13 +716,23 @@ if __name__ == "__main__":
                         help="Global seed (random+torch+cuda). The 5-seed "
                              "campaign varies ONLY this; curriculum schedule "
                              "stays identical across seeds.")
-    parser.add_argument("--policy", choices=["mlp", "kan"], default="mlp",
+    parser.add_argument("--policy", choices=["mlp", "kan", "kan_ae", "encoder_kan"],
+                        default="mlp",
                         help="mlp = GRU encoder + MLP (baseline, default, "
                              "byte-identical to pre-KAN). kan = KAN over "
-                             "hand-crafted candidate features (no encoder).")
+                             "hand-crafted candidate features (no encoder). "
+                             "kan_ae = kan + learned action embedding. "
+                             "encoder_kan = ASTEncoder + bottleneck KAN head.")
     parser.add_argument("--kan-hidden", type=int, default=16,
-                        help="KAN hidden width (width=[FEATURE_DIM,H,1]). "
-                             "Only used when --policy kan.")
+                        help="KAN hidden width.")
+    parser.add_argument("--kan-action-emb-dim", type=int, default=8,
+                        help="Action embedding width for kan_ae/encoder_kan.")
+    parser.add_argument("--kan-bottleneck-dim", type=int, default=16,
+                        help="Bottleneck width for encoder_kan.")
+    parser.add_argument("--kan-grid", type=int, default=5,
+                        help="efficient_kan grid_size.")
+    parser.add_argument("--kan-spline-order", type=int, default=3,
+                        help="efficient_kan spline_order.")
     args = parser.parse_args()
 
     train(
@@ -675,4 +751,8 @@ if __name__ == "__main__":
         seed=args.seed,
         policy_kind=args.policy,
         kan_hidden=args.kan_hidden,
+        kan_action_emb_dim=args.kan_action_emb_dim,
+        kan_bottleneck_dim=args.kan_bottleneck_dim,
+        kan_grid=args.kan_grid,
+        kan_spline_order=args.kan_spline_order,
     )
