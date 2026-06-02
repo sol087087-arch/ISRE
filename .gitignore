@@ -7,6 +7,7 @@ checkpoints/
 checkpoints_*/
 day7_*_out/
 kan_*_phi/
+hf_exports/
 animation.gif
 *.log
 
