@@ -1,0 +1,91 @@
+Device: cpu  Seed: 0
+Loading trajectories from isre/trajectories_v7_bfs...
+  Total training steps: 293631
+  Train: 264265, Val: 29366  (val trajectories: 9847, split_seed=1234)
+  Gold action distribution:
+    MERGE_POWER: 44276 (16.8%)
+    REMOVE_ZERO: 42928 (16.2%)
+    FOLD_CONST: 41559 (15.7%)
+    REMOVE_ONE: 40214 (15.2%)
+    COMBINE_COEFF: 35301 (13.4%)
+    FLATTEN_ADD: 24925 (9.4%)
+    FLATTEN_MUL: 14781 (5.6%)
+    SORT_COMMUTATIVE: 14203 (5.4%)
+    COLLECT_TERMS: 3063 (1.2%)
+    EXPAND: 3015 (1.1%)
+  Policy: KAN-AE width=[35,16,1] action_emb=8
+  Policy params:  5,840
+  Total params:   5,840
+  CURRICULUM e1/15 target=1.00 max_diff=12 sampled[d1:38646 d2:77987 d3:83262 d4:47394 d5:14565 d6:2307 d7:104]
+Epoch   1 | loss 0.5107 | acc 0.815 | avg_gold_rank 1.29 | steps 264265 | 381.0s
+  gold action dist: {'COLLECT_TERMS': '1.3%', 'COMBINE_COEFF': '15.4%', 'EXPAND': '0.3%', 'FLATTEN_ADD': '7.8%', 'FLATTEN_MUL': '3.3%', 'FOLD_CONST': '17.2%', 'MERGE_POWER': '15.7%', 'REMOVE_ONE': '16.5%', 'REMOVE_ZERO': '17.6%', 'SORT_COMMUTATIVE': '5.0%'}
+  VAL  | loss 0.6876 | acc 0.742 | avg_gold_rank 1.42
+  SAVED best model (val_loss=0.6876)
+  CURRICULUM e2/15 target=1.50 max_diff=12 sampled[d1:30818 d2:70202 d3:85719 d4:54856 d5:18975 d6:3523 d7:172]
+Epoch   2 | loss 0.4892 | acc 0.823 | avg_gold_rank 1.27 | steps 264265 | 402.1s
+  gold action dist: {'COLLECT_TERMS': '1.3%', 'COMBINE_COEFF': '14.8%', 'EXPAND': '0.4%', 'FLATTEN_ADD': '8.2%', 'FLATTEN_MUL': '3.5%', 'FOLD_CONST': '16.9%', 'MERGE_POWER': '15.6%', 'REMOVE_ONE': '16.5%', 'REMOVE_ZERO': '17.7%', 'SORT_COMMUTATIVE': '5.0%'}
+  VAL  | loss 0.6668 | acc 0.762 | avg_gold_rank 1.40
+  SAVED best model (val_loss=0.6668)
+  CURRICULUM e3/15 target=2.00 max_diff=12 sampled[d1:23797 d2:62119 d3:86076 d4:62016 d5:24812 d6:5151 d7:252 d8:42]
+Epoch   3 | loss 0.5119 | acc 0.813 | avg_gold_rank 1.29 | steps 264265 | 488.2s
+  gold action dist: {'COLLECT_TERMS': '1.2%', 'COMBINE_COEFF': '14.3%', 'EXPAND': '0.4%', 'FLATTEN_ADD': '8.5%', 'FLATTEN_MUL': '4.0%', 'FOLD_CONST': '16.9%', 'MERGE_POWER': '15.6%', 'REMOVE_ONE': '16.5%', 'REMOVE_ZERO': '17.6%', 'SORT_COMMUTATIVE': '5.0%'}
+  VAL  | loss 0.6570 | acc 0.764 | avg_gold_rank 1.39
+  SAVED best model (val_loss=0.6570)
+  CURRICULUM e4/15 target=2.50 max_diff=12 sampled[d1:18100 d2:54222 d3:83772 d4:69595 d5:30779 d6:7263 d7:441 d8:93]
+Epoch   4 | loss 0.5354 | acc 0.802 | avg_gold_rank 1.31 | steps 264265 | 521.2s
+  gold action dist: {'COLLECT_TERMS': '1.2%', 'COMBINE_COEFF': '13.7%', 'EXPAND': '0.5%', 'FLATTEN_ADD': '8.9%', 'FLATTEN_MUL': '4.3%', 'FOLD_CONST': '16.7%', 'MERGE_POWER': '15.9%', 'REMOVE_ONE': '16.3%', 'REMOVE_ZERO': '17.5%', 'SORT_COMMUTATIVE': '5.1%'}
+  VAL  | loss 0.6252 | acc 0.773 | avg_gold_rank 1.37
+  SAVED best model (val_loss=0.6252)
+  CURRICULUM e5/15 target=3.00 max_diff=12 sampled[d1:13678 d2:45450 d3:81134 d4:74923 d5:38142 d6:10084 d7:677 d8:152 d9:25]
+Epoch   5 | loss 0.5599 | acc 0.792 | avg_gold_rank 1.32 | steps 264265 | 604.4s
+  gold action dist: {'COLLECT_TERMS': '1.1%', 'COMBINE_COEFF': '13.5%', 'EXPAND': '0.6%', 'FLATTEN_ADD': '9.2%', 'FLATTEN_MUL': '4.6%', 'FOLD_CONST': '16.5%', 'MERGE_POWER': '16.0%', 'REMOVE_ONE': '16.1%', 'REMOVE_ZERO': '17.3%', 'SORT_COMMUTATIVE': '5.1%'}
+  VAL  | loss 0.6189 | acc 0.777 | avg_gold_rank 1.36
+  SAVED best model (val_loss=0.6189)
+  CURRICULUM e6/15 target=3.50 max_diff=12 sampled[d1:9784 d2:37661 d3:75375 d4:80006 d5:46319 d6:13787 d7:1088 d8:204 d9:41]
+Epoch   6 | loss 0.5893 | acc 0.780 | avg_gold_rank 1.35 | steps 264265 | 439.4s
+  gold action dist: {'COLLECT_TERMS': '1.1%', 'COMBINE_COEFF': '12.9%', 'EXPAND': '0.7%', 'FLATTEN_ADD': '9.6%', 'FLATTEN_MUL': '5.1%', 'FOLD_CONST': '16.2%', 'MERGE_POWER': '16.3%', 'REMOVE_ONE': '16.0%', 'REMOVE_ZERO': '16.9%', 'SORT_COMMUTATIVE': '5.2%'}
+  VAL  | loss 0.6099 | acc 0.777 | avg_gold_rank 1.37
+  SAVED best model (val_loss=0.6099)
+  CURRICULUM e7/15 target=4.00 max_diff=12 sampled[d1:7108 d2:30327 d3:69757 d4:82839 d5:53846 d6:18186 d7:1706 d8:423 d9:66 d10:7]
+Epoch   7 | loss 0.6124 | acc 0.771 | avg_gold_rank 1.36 | steps 264265 | 374.2s
+  gold action dist: {'COLLECT_TERMS': '1.1%', 'COMBINE_COEFF': '12.9%', 'EXPAND': '0.8%', 'FLATTEN_ADD': '10.0%', 'FLATTEN_MUL': '5.4%', 'FOLD_CONST': '15.9%', 'MERGE_POWER': '16.4%', 'REMOVE_ONE': '15.6%', 'REMOVE_ZERO': '16.7%', 'SORT_COMMUTATIVE': '5.2%'}
+  VAL  | loss 0.6097 | acc 0.774 | avg_gold_rank 1.36
+  SAVED best model (val_loss=0.6097)
+  CURRICULUM e8/15 target=4.50 max_diff=12 sampled[d1:4929 d2:24246 d3:62038 d4:84216 d5:62111 d6:23409 d7:2488 d8:655 d9:151 d10:22]
+Epoch   8 | loss 0.6367 | acc 0.763 | avg_gold_rank 1.38 | steps 264265 | 374.3s
+  gold action dist: {'COLLECT_TERMS': '1.1%', 'COMBINE_COEFF': '12.5%', 'EXPAND': '1.0%', 'FLATTEN_ADD': '10.2%', 'FLATTEN_MUL': '5.8%', 'FOLD_CONST': '15.6%', 'MERGE_POWER': '16.7%', 'REMOVE_ONE': '15.4%', 'REMOVE_ZERO': '16.4%', 'SORT_COMMUTATIVE': '5.3%'}
+  VAL  | loss 0.6023 | acc 0.779 | avg_gold_rank 1.36
+  SAVED best model (val_loss=0.6023)
+  CURRICULUM e9/15 target=5.00 max_diff=12 sampled[d1:3408 d2:18616 d3:54311 d4:83415 d5:69722 d6:29931 d7:3481 d8:1038 d9:302 d10:38 d11:3]
+Epoch   9 | loss 0.6569 | acc 0.754 | avg_gold_rank 1.40 | steps 264265 | 412.4s
+  gold action dist: {'COLLECT_TERMS': '1.1%', 'COMBINE_COEFF': '12.4%', 'EXPAND': '1.1%', 'FLATTEN_ADD': '10.5%', 'FLATTEN_MUL': '6.3%', 'FOLD_CONST': '15.2%', 'MERGE_POWER': '17.0%', 'REMOVE_ONE': '15.0%', 'REMOVE_ZERO': '16.1%', 'SORT_COMMUTATIVE': '5.3%'}
+  VAL  | loss 0.5952 | acc 0.781 | avg_gold_rank 1.35
+  SAVED best model (val_loss=0.5952)
+  CURRICULUM e10/15 target=5.50 max_diff=12 sampled[d1:2164 d2:14185 d3:46171 d4:80824 d5:76281 d6:37283 d7:5054 d8:1722 d9:481 d10:95 d11:5]
+Epoch  10 | loss 0.6797 | acc 0.746 | avg_gold_rank 1.42 | steps 264265 | 544.8s
+  gold action dist: {'COLLECT_TERMS': '1.0%', 'COMBINE_COEFF': '12.1%', 'EXPAND': '1.4%', 'FLATTEN_ADD': '10.7%', 'FLATTEN_MUL': '6.6%', 'FOLD_CONST': '15.0%', 'MERGE_POWER': '17.4%', 'REMOVE_ONE': '14.5%', 'REMOVE_ZERO': '15.7%', 'SORT_COMMUTATIVE': '5.5%'}
+  VAL  | loss 0.5958 | acc 0.779 | avg_gold_rank 1.36
+  CURRICULUM e11/15 target=6.00 max_diff=12 sampled[d1:1475 d2:10207 d3:38419 d4:76098 d5:81513 d6:45782 d7:6973 d8:2691 d9:917 d10:179 d11:11]
+Epoch  11 | loss 0.7022 | acc 0.738 | avg_gold_rank 1.44 | steps 264265 | 371.6s
+  gold action dist: {'COLLECT_TERMS': '1.0%', 'COMBINE_COEFF': '12.0%', 'EXPAND': '1.6%', 'FLATTEN_ADD': '10.9%', 'FLATTEN_MUL': '7.3%', 'FOLD_CONST': '14.6%', 'MERGE_POWER': '17.7%', 'REMOVE_ONE': '14.1%', 'REMOVE_ZERO': '15.1%', 'SORT_COMMUTATIVE': '5.6%'}
+  VAL  | loss 0.5945 | acc 0.778 | avg_gold_rank 1.35
+  SAVED best model (val_loss=0.5945)
+  CURRICULUM e12/15 target=6.50 max_diff=12 sampled[d1:932 d2:7413 d3:31279 d4:69968 d5:85324 d6:54057 d7:9327 d8:4085 d9:1532 d10:328 d11:19 d12:1]
+Epoch  12 | loss 0.7160 | acc 0.732 | avg_gold_rank 1.45 | steps 264265 | 367.1s
+  gold action dist: {'COLLECT_TERMS': '1.0%', 'COMBINE_COEFF': '11.9%', 'EXPAND': '2.0%', 'FLATTEN_ADD': '11.1%', 'FLATTEN_MUL': '7.8%', 'FOLD_CONST': '14.2%', 'MERGE_POWER': '18.0%', 'REMOVE_ONE': '13.7%', 'REMOVE_ZERO': '14.7%', 'SORT_COMMUTATIVE': '5.7%'}
+  VAL  | loss 0.6039 | acc 0.780 | avg_gold_rank 1.35
+  CURRICULUM e13/15 target=7.00 max_diff=12 sampled[d1:560 d2:5119 d3:24712 d4:63270 d5:87336 d6:62138 d7:11814 d8:5998 d9:2615 d10:629 d11:70 d12:4]
+Epoch  13 | loss 0.7281 | acc 0.728 | avg_gold_rank 1.46 | steps 264265 | 439.0s
+  gold action dist: {'COLLECT_TERMS': '1.0%', 'COMBINE_COEFF': '11.6%', 'EXPAND': '2.3%', 'FLATTEN_ADD': '11.1%', 'FLATTEN_MUL': '8.6%', 'FOLD_CONST': '13.8%', 'MERGE_POWER': '18.5%', 'REMOVE_ONE': '13.3%', 'REMOVE_ZERO': '14.1%', 'SORT_COMMUTATIVE': '5.8%'}
+  VAL  | loss 0.6027 | acc 0.774 | avg_gold_rank 1.36
+  CURRICULUM e14/15 target=7.00 max_diff=12 sampled[d1:562 d2:5184 d3:24771 d4:63124 d5:87186 d6:62133 d7:12112 d8:5949 d9:2515 d10:675 d11:54]
+Epoch  14 | loss 0.7304 | acc 0.728 | avg_gold_rank 1.46 | steps 264265 | 397.7s
+  gold action dist: {'COLLECT_TERMS': '1.0%', 'COMBINE_COEFF': '11.6%', 'EXPAND': '2.3%', 'FLATTEN_ADD': '11.2%', 'FLATTEN_MUL': '8.3%', 'FOLD_CONST': '13.6%', 'MERGE_POWER': '18.4%', 'REMOVE_ONE': '13.4%', 'REMOVE_ZERO': '14.1%', 'SORT_COMMUTATIVE': '5.9%'}
+  VAL  | loss 0.6094 | acc 0.771 | avg_gold_rank 1.36
+  CURRICULUM e15/15 target=7.00 max_diff=12 sampled[d1:528 d2:5073 d3:24536 d4:63532 d5:86770 d6:62516 d7:11918 d8:6028 d9:2642 d10:671 d11:51]
+Epoch  15 | loss 0.7300 | acc 0.729 | avg_gold_rank 1.46 | steps 264265 | 396.7s
+  gold action dist: {'COLLECT_TERMS': '1.0%', 'COMBINE_COEFF': '11.7%', 'EXPAND': '2.4%', 'FLATTEN_ADD': '11.3%', 'FLATTEN_MUL': '8.4%', 'FOLD_CONST': '13.6%', 'MERGE_POWER': '18.4%', 'REMOVE_ONE': '13.3%', 'REMOVE_ZERO': '14.0%', 'SORT_COMMUTATIVE': '5.9%'}
+  VAL  | loss 0.5924 | acc 0.777 | avg_gold_rank 1.35
+  SAVED best model (val_loss=0.5924)
+
+Training complete. Best val loss: 0.5924
