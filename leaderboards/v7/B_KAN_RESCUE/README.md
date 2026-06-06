@@ -1,5 +1,85 @@
 # B: KAN Rescue Campaign
 
+Portfolio-ready summary of the ISRE v7 KAN rescue experiment.
+
+## Executive Summary
+
+We tested whether KAN underperformed because KAN itself was weak on symbolic
+algebra simplification, or because the original KAN arm received a much poorer
+input representation than the MLP baselines.
+
+The answer is nuanced and useful:
+
+```text
+Raw feature-only KAN was underpowered.
+Action embeddings helped a little.
+ASTEncoder + Encoder-KAN helped a lot.
+The original bottleneck was too narrow.
+The best Encoder-KAN point now beats micro-MLP h8 on greedy rollout.
+```
+
+Best current Encoder-KAN point:
+
+```text
+Encoder-KAN b28 h16
+params:               7,444
+greedy BFS-optimal:   92.2%
+beam-5 BFS-optimal:   99.2%
+mean greedy overhead: 0.111
+```
+
+Reference points:
+
+```text
+raw KAN h16:       84.5% greedy BFS-optimal
+micro-MLP h8:      91.1% greedy BFS-optimal
+micro-MLP h16:     93.7% greedy BFS-optimal
+MLP-128 reference: 89.4% greedy BFS-optimal
+```
+
+Main takeaway:
+
+> KAN did not simply fail. It failed when deprived of learned AST
+> representation. With encoder-matched inputs and a tuned bottleneck,
+> Encoder-KAN becomes competitive while staying far smaller than the large MLP
+> reference.
+
+## Figures
+
+![KAN rescue portfolio summary](kan_rescue_portfolio_summary.png)
+
+![Encoder-KAN local sweep map](kan_rescue_sweep_map.png)
+
+Historical early-campaign chart:
+
+![KAN rescue comparison](kan_rescue_comparison.png)
+
+## Final Local Sweep
+
+All runs use `isre/trajectories_v7_bfs`, seed 0, the trajectory-level held-out
+split from `val_traj_ids.json`, and Mode A free rollout on 2,000 held-out
+trajectories.
+
+| Model | Params | Best val loss | Greedy BFS-optimal | Greedy overhead | Beam-5 BFS-optimal | Beam-5 overhead |
+|---|---:|---:|---:|---:|---:|---:|
+| Encoder-KAN b24 h12 | 5,704 | 0.4570 | 91.9% | 0.114 | 99.2% | 0.013 |
+| Encoder-KAN b24 h16 | 6,704 | 0.4338 | 91.4% | 0.119 | 99.1% | 0.011 |
+| Encoder-KAN b28 h16 | 7,444 | 0.4464 | 92.2% | 0.111 | 99.2% | 0.010 |
+| Encoder-KAN b24 h24 | 8,704 | 0.4464 | 90.3% | 0.137 | 99.1% | 0.012 |
+| Encoder-KAN b24 h32 | 10,704 | 0.4697 | 90.8% | 0.132 | 99.3% | 0.009 |
+
+Important methodological point:
+
+```text
+Validation loss did not perfectly predict rollout quality.
+b24 h16 has the best val loss.
+b28 h16 has the best greedy rollout.
+b24 h32 has the best beam-5 rollout.
+```
+
+This is why the leaderboard ranks by free rollout rather than validation loss
+alone.
+
 Append-only experiment folder. Nothing here replaces the locked v7 raw-KAN
 leaderboard. This campaign asks a narrower fairness question:
 
