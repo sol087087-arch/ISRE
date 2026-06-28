@@ -1,0 +1,454 @@
+"""Neural policy evaluation harness.
+
+Two modes, both per-trajectory on a held-out split:
+
+MODE A — free rollout (PRIMARY metric):
+  model picks argmax action until canonical or max_steps.
+  bfs_steps = the v6_bfs trajectory difficulty (BFS-provably-optimal by
+  construction of v6_bfs gold). overhead = mlp_steps - bfs_steps.
+  Reports: success_rate, overhead {mean,p25,p50,p75,p95},
+           bfs_optimal_rate (% overhead==0), catastrophic_rate (% >=3).
+  Distribution (not just mean) distinguishes sharp-competence from
+  heavy-tail models — needed for KAN collapse diagnostics.
+
+MODE B — teacher-forced step agreement + 3-way divergence:
+  walk the BFS-optimal gold path; at each state compare model argmax to
+  bfs_action (the gold there) and to teacher_action (the NAIVE recorded
+  arm's action at the SAME state, looked up by state_expr in the paired
+  v6_recorded trajectory — no off-path BFS needed; the arms are pairing-
+  verified to share the start).
+  Categories per divergence:
+    smarter_than_recorded : mlp == bfs  != recorded
+    imitated_recorded     : mlp == recorded != bfs
+    true_error            : mlp != bfs  and mlp != recorded
+  + per-action confusion (gold_action -> what model picked).
+  This is the instrument that decides v1.5 (BFS-relabel) vs v2 (ranking/RL):
+  dominant 'imitated_recorded' => teacher signal is the problem (relabel
+  helps); dominant 'true_error' => model capacity/training (relabel won't).
+
+Usage:
+  python scripts/eval_neural.py --ckpt checkpoints_x/best.pt --hidden-dim 128 \
+      --bfs-data isre/trajectories_v6_bfs --recorded-data isre/trajectories_v6_recorded \
+      --val-split 0.1 --seed 0 --max-steps 30 --n 2000
+"""
+from __future__ import annotations
+
+import argparse, json, random, statistics, sys
+from collections import Counter, defaultdict
+from pathlib import Path
+
+import torch
+
+from isre.symbolic.isre_ast import ASTNode
+from isre.symbolic.symbolic_engine import SymbolicEngine, ActionType
+from isre.learning.encoder import ASTEncoder
+from isre.learning.policy import PolicyNetwork
+
+_ACT = {a.value: a for a in ActionType}
+
+
+def load_model(ckpt_path: str, hidden_dim: int, num_rounds: int, device: str,
+               policy_kind: str = "mlp", kan_hidden: int = 16,
+               policy_hidden_dim: int | None = None,
+               action_emb_dim: int | None = None,
+               kan_action_emb_dim: int | None = None,
+               kan_bottleneck_dim: int | None = None,
+               kan_depth: int | None = None,
+               kan_grid: int | None = None,
+               kan_spline_order: int | None = None):
+    ck = torch.load(ckpt_path, map_location=device)
+    policy_kind = ck.get("policy_kind", policy_kind)
+    kan_hidden = int(ck.get("kan_hidden", kan_hidden))
+    kan_grid = int(ck.get("kan_grid", 5 if kan_grid is None else kan_grid))
+    kan_spline_order = int(ck.get(
+        "kan_spline_order",
+        3 if kan_spline_order is None else kan_spline_order,
+    ))
+    kan_depth = int(ck.get("kan_depth", 2 if kan_depth is None else kan_depth))
+    if policy_kind == "kan":
+        # KAN arm: NO encoder. enc is returned as None and every scoring
+        # helper below branches on that. State is a plain torch state_dict
+        # of the pykan KAN (saved by train.py).
+        from isre.learning.kan_policy import KANPolicy
+        pol = KANPolicy(
+            hidden=kan_hidden,
+            grid=kan_grid,
+            k=kan_spline_order,
+            device=device,
+        )
+        pol.load_state_dict(ck["policy"])
+        pol.eval()
+        return None, pol
+    if policy_kind == "kan_ae":
+        from isre.learning.kan_rescue_policy import ActionEmbeddingKANPolicy
+        kan_action_emb = int(ck.get(
+            "kan_action_emb_dim",
+            8 if kan_action_emb_dim is None else kan_action_emb_dim,
+        ))
+        pol = ActionEmbeddingKANPolicy(
+            hidden=kan_hidden,
+            action_emb_dim=kan_action_emb,
+            grid=kan_grid,
+            k=kan_spline_order,
+            device=device,
+        )
+        pol.load_state_dict(ck["policy"])
+        pol.eval()
+        return None, pol
+    hidden_dim = int(ck.get("hidden_dim", hidden_dim))
+    num_rounds = int(ck.get("num_rounds", num_rounds))
+    if policy_kind in {"encoder_kan", "encoder_deep_kan"}:
+        from isre.learning.kan_rescue_policy import (
+            EncoderDeepKANPolicy,
+            EncoderKANPolicy,
+        )
+        kan_action_emb = int(ck.get(
+            "kan_action_emb_dim",
+            8 if kan_action_emb_dim is None else kan_action_emb_dim,
+        ))
+        kan_bottleneck = int(ck.get(
+            "kan_bottleneck_dim",
+            16 if kan_bottleneck_dim is None else kan_bottleneck_dim,
+        ))
+        enc = ASTEncoder(hidden_dim=hidden_dim, num_rounds=num_rounds).to(device)
+        if policy_kind == "encoder_deep_kan":
+            pol = EncoderDeepKANPolicy(
+                node_emb_dim=hidden_dim * 2,
+                hidden=kan_hidden,
+                action_emb_dim=kan_action_emb,
+                bottleneck_dim=kan_bottleneck,
+                depth=kan_depth,
+                grid=kan_grid,
+                k=kan_spline_order,
+            ).to(device)
+        else:
+            pol = EncoderKANPolicy(
+                node_emb_dim=hidden_dim * 2,
+                hidden=kan_hidden,
+                action_emb_dim=kan_action_emb,
+                bottleneck_dim=kan_bottleneck,
+                grid=kan_grid,
+                k=kan_spline_order,
+            ).to(device)
+        enc.load_state_dict(ck["encoder"])
+        pol.load_state_dict(ck["policy"])
+        enc.eval(); pol.eval()
+        return enc, pol
+    policy_hidden = int(ck.get(
+        "policy_hidden_dim",
+        hidden_dim if policy_hidden_dim is None else policy_hidden_dim,
+    ))
+    action_emb = int(ck.get(
+        "action_emb_dim",
+        64 if action_emb_dim is None else action_emb_dim,
+    ))
+    enc = ASTEncoder(hidden_dim=hidden_dim, num_rounds=num_rounds).to(device)
+    pol = PolicyNetwork(node_emb_dim=hidden_dim * 2, variant="mlp",
+                        hidden_dim=policy_hidden,
+                        action_emb_dim=action_emb).to(device)
+    enc.load_state_dict(ck["encoder"])
+    pol.load_state_dict(ck["policy"])
+    enc.eval(); pol.eval()
+    return enc, pol
+
+
+def _score(enc, pol, root: ASTNode, cand):
+    """Model-agnostic scoring. MLP: enc(root) -> pol(emb, cand).
+    KAN (enc is None): pol.score(root, cand) over hand-crafted features."""
+    if enc is None:
+        root.mark_dirty(); root._rebuild_parents()
+        return pol.score(root, cand)
+    emb, _ = enc(root)
+    return pol(emb, cand)
+
+
+@torch.no_grad()
+def _argmax_action(enc, pol, root: ASTNode, engine: SymbolicEngine):
+    cands_raw = engine.get_candidates(root)
+    if not cands_raw:
+        return None, None, []
+    cand = [(nid, a) for nid, _, a in cands_raw]
+    scores = _score(enc, pol, root, cand)
+    if scores.numel() == 0:
+        return None, None, cand
+    idx = int(torch.argmax(scores).item())
+    return cand[idx][0], cand[idx][1], cand
+
+
+@torch.no_grad()
+def free_rollout(enc, pol, start: ASTNode, canon_expr: str,
+                 engine: SymbolicEngine, max_steps: int):
+    root = start.clone(); root.mark_dirty(); root._rebuild_parents()
+    seen = set()
+    for step in range(max_steps):
+        if root.to_expr() == canon_expr:
+            return True, step
+        nid, act, cand = _argmax_action(enc, pol, root, engine)
+        if act is None:
+            return False, step          # engine dead-end (should be ~0 on v6)
+        e = root.to_expr()
+        if e in seen:                   # order-sensitive loop guard (POSTMORTEM)
+            return False, step
+        seen.add(e)
+        root = engine.apply(root, nid, act)
+    return root.to_expr() == canon_expr, max_steps
+
+
+@torch.no_grad()
+def beam_rollout(enc, pol, start: ASTNode, canon_expr: str,
+                 engine: SymbolicEngine, max_steps: int, beam_k: int):
+    """Width-K beam search free rollout.
+
+    Spec (reviewer): score aggregation = SUM of per-step log-probs (not
+    product/avg — avoids degeneracy). Each beam carries (state, cum_logp,
+    order-sensitive visited set for the POSTMORTEM loop guard). At each
+    depth: expand every beam over engine candidates, score via
+    log_softmax(policy), goal-test ALL expanded children (a canonical
+    child = solution at this depth = shortest, since every beam advances
+    one step/iter), else dedup children by to_expr() keeping the higher
+    cum_logp, keep top-K. Success = any beam-child reaches canonical;
+    steps = that depth (minimal across beams by construction).
+
+    beam_k=1 reduces EXACTLY to greedy free_rollout (single beam, top-1 by
+    this step's log-prob = argmax of scores). Verified as a correctness gate.
+    """
+    import torch.nn.functional as F
+    r0 = start.clone(); r0.mark_dirty(); r0._rebuild_parents()
+    e0 = r0.to_expr()
+    if e0 == canon_expr:
+        return True, 0
+    beams = [(r0, 0.0, {e0})]               # (node, cum_logp, visited)
+
+    for step in range(1, max_steps + 1):
+        pool = []                            # (cum_child, expr, child, visited')
+        for node, cum, visited in beams:
+            craw = engine.get_candidates(node)
+            if not craw:
+                continue
+            cand = [(nid, a) for nid, _, a in craw]
+            scores = _score(enc, pol, node, cand)
+            if scores.numel() == 0:
+                continue
+            logps = F.log_softmax(scores, dim=-1)
+            for j, (nid, a) in enumerate(cand):
+                child = engine.apply(node, nid, a)
+                ce = child.to_expr()
+                if ce in visited:            # this path loops -> dead child
+                    continue
+                pool.append((cum + float(logps[j].item()), ce, child,
+                             visited | {ce}))
+        if not pool:
+            return False, step               # every beam dead/looping
+        # goal test on expansion (shortest: first depth any beam hits canon)
+        for cum, ce, child, vis in pool:
+            if ce == canon_expr:
+                return True, step
+        # dedup by state, keep higher cum_logp; then top-K
+        best = {}
+        for cum, ce, child, vis in pool:
+            if ce not in best or cum > best[ce][0]:
+                best[ce] = (cum, child, vis)
+        ranked = sorted(best.values(), key=lambda x: x[0], reverse=True)
+        beams = [(child, cum, vis) for cum, child, vis in ranked[:beam_k]]
+
+    return False, max_steps
+
+
+def quantiles(xs):
+    if not xs:
+        return {}
+    s = sorted(xs)
+    def q(p): return s[min(len(s) - 1, int(p * len(s)))]
+    return {"mean": round(statistics.fmean(s), 3),
+            "p25": q(.25), "p50": q(.50), "p75": q(.75), "p95": q(.95)}
+
+
+def main():
+    sys.stdout.reconfigure(encoding="utf-8")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--ckpt", required=True)
+    ap.add_argument("--hidden-dim", type=int, required=True)
+    ap.add_argument("--num-rounds", type=int, default=4)
+    ap.add_argument("--policy-hidden-dim", type=int, default=None,
+                    help="MLP scorer hidden width. If present in checkpoint, "
+                         "checkpoint metadata wins.")
+    ap.add_argument("--action-emb-dim", type=int, default=None,
+                    help="MLP action embedding width. If present in checkpoint, "
+                         "checkpoint metadata wins.")
+    ap.add_argument("--kan-action-emb-dim", type=int, default=None,
+                    help="Action embedding width for kan_ae/encoder_kan. "
+                         "Checkpoint metadata wins.")
+    ap.add_argument("--kan-bottleneck-dim", type=int, default=None,
+                    help="Bottleneck width for encoder_kan. Checkpoint metadata wins.")
+    ap.add_argument("--kan-depth", type=int, default=None,
+                    help="Hidden KAN layer count for encoder_deep_kan. Checkpoint metadata wins.")
+    ap.add_argument("--kan-grid", type=int, default=None,
+                    help="efficient_kan grid_size. Checkpoint metadata wins.")
+    ap.add_argument("--kan-spline-order", type=int, default=None,
+                    help="efficient_kan spline_order. Checkpoint metadata wins.")
+    ap.add_argument("--bfs-data", default="isre/trajectories_v6_bfs")
+    ap.add_argument("--recorded-data", default="isre/trajectories_v6_recorded")
+    ap.add_argument("--val-split", type=float, default=0.1)
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--max-steps", type=int, default=30)
+    ap.add_argument("--n", type=int, default=2000, help="cap eval trajectories")
+    ap.add_argument("--beam", type=int, default=1,
+                    help="MODE A beam width (1 = greedy; beam-1 must "
+                         "reproduce greedy exactly — built-in correctness gate)")
+    ap.add_argument("--device", default="auto")
+    ap.add_argument("--policy", choices=["mlp", "kan", "kan_ae", "encoder_kan", "encoder_deep_kan"],
+                    default="mlp",
+                    help="mlp = GRU encoder + MLP (default, unchanged). "
+                         "kan = KAN over hand-crafted features (no encoder). "
+                         "kan_ae = kan + learned action embedding. "
+                         "encoder_kan = ASTEncoder + bottleneck KAN head. "
+                         "encoder_deep_kan = same inputs + deeper KAN head.")
+    ap.add_argument("--kan-hidden", type=int, default=16,
+                    help="KAN hidden width; must match training. "
+                         "Only used when --policy kan.")
+    args = ap.parse_args()
+
+    device = ("cuda" if torch.cuda.is_available() else "cpu") \
+        if args.device == "auto" else args.device
+    print(f"Device: {device}  ckpt: {args.ckpt}  hidden: {args.hidden_dim}  "
+          f"MODE-A: {'greedy' if args.beam <= 1 else f'beam-{args.beam}'}")
+
+    enc, pol = load_model(args.ckpt, args.hidden_dim, args.num_rounds, device,
+                          policy_kind=args.policy, kan_hidden=args.kan_hidden,
+                          policy_hidden_dim=args.policy_hidden_dim,
+                          action_emb_dim=args.action_emb_dim,
+                          kan_action_emb_dim=args.kan_action_emb_dim,
+                          kan_bottleneck_dim=args.kan_bottleneck_dim,
+                          kan_depth=args.kan_depth,
+                          kan_grid=args.kan_grid,
+                          kan_spline_order=args.kan_spline_order)
+    engine = SymbolicEngine()
+
+    bfs_dir = Path(args.bfs_data)
+    rec_dir = Path(args.recorded_data)
+
+    # EXPLICIT held-out dependency: read the exact trajectory ids the
+    # trainer held out (written next to the checkpoint as val_traj_ids.json).
+    # Fail LOUD if absent — never re-derive / shuffle-guess (the old
+    # "reproduce split by reshuffling" was a lie: it shuffled id strings
+    # while the trainer shuffled steps -> contaminated eval, POSTMORTEM #7).
+    vpath = Path(args.ckpt).parent / "val_traj_ids.json"
+    if not vpath.exists():
+        sys.exit(f"FATAL: {vpath} missing. This checkpoint was trained "
+                 f"without the trajectory-level split (or pre-#7). A clean "
+                 f"held-out eval is impossible; re-train with current "
+                 f"train.py. NOT falling back to a guessed split.")
+    meta = json.loads(vpath.read_text(encoding="utf-8"))
+    val_set = set(meta["val_traj_ids"])
+    # Map ids (stored as traj.trajectory_id, e.g. 'traj_0001234') to files.
+    all_files = {p.stem: p for p in bfs_dir.glob("traj_*.json")}
+    val_ids = sorted(tid for tid in val_set if tid in all_files)
+    if args.n:
+        val_ids = val_ids[: args.n]
+    print(f"Held-out: {len(val_set)} val trajectories "
+          f"(split_seed={meta.get('split_seed')}); evaluating {len(val_ids)}\n")
+
+    succ = 0
+    overheads = []
+    fail_diff = Counter()
+    # Mode B accumulators
+    cat = Counter()                       # divergence categories
+    confusion = defaultdict(Counter)      # bfs_action -> model pick
+    gold_steps_total = 0
+    gold_steps_match = 0
+
+    for tid in val_ids:
+        fname = tid if tid.endswith(".json") else f"{tid}.json"
+        b = json.loads((bfs_dir / fname).read_text(encoding="utf-8"))
+        start = ASTNode.from_dict(b["original_ast"])
+        canon = b["canonical_expr"]
+        bfs_len = b["difficulty"]         # = BFS-optimal by construction
+
+        # ---- MODE A: free rollout (greedy if beam==1, else beam-K) ----
+        if args.beam <= 1:
+            ok, steps = free_rollout(enc, pol, start, canon, engine,
+                                     args.max_steps)
+        else:
+            ok, steps = beam_rollout(enc, pol, start, canon, engine,
+                                     args.max_steps, args.beam)
+        if ok:
+            succ += 1
+            overheads.append(steps - bfs_len)
+        else:
+            fail_diff[bfs_len] += 1
+
+        # ---- MODE B: teacher-forced step agreement on BFS gold path ----
+        rec_path = rec_dir / fname
+        rec_by_expr = {}
+        if rec_path.exists():
+            r = json.loads(rec_path.read_text(encoding="utf-8"))
+            for s in r["steps"]:
+                rec_by_expr[s["state_expr"]] = s["gold_action"]
+
+        root = start.clone(); root.mark_dirty(); root._rebuild_parents()
+        for s in b["steps"]:
+            bfs_act = s["gold_action"]
+            nid, act, cand = _argmax_action(enc, pol, root, engine)
+            if act is None:
+                break
+            mlp_act = act.value
+            gold_steps_total += 1
+            if mlp_act == bfs_act:
+                gold_steps_match += 1
+            confusion[bfs_act][mlp_act] += 1
+            # 3-way categorization (teacher = recorded action at THIS state)
+            teach = rec_by_expr.get(s["state_expr"])
+            if mlp_act != bfs_act:
+                if teach is None:
+                    cat["div_teacher_undefined"] += 1
+                elif mlp_act == teach and teach != bfs_act:
+                    cat["imitated_recorded"] += 1
+                elif mlp_act != teach:
+                    cat["true_error"] += 1
+            else:  # mlp == bfs
+                if teach is not None and teach != bfs_act:
+                    cat["smarter_than_recorded"] += 1
+                else:
+                    cat["agree_optimal"] += 1
+            # advance ALONG THE GOLD path (teacher-forced), not model's pick
+            root = engine.apply(root, s["gold_node_id"],
+                                _ACT[s["gold_action"]])
+
+    n = len(val_ids)
+    print("=== MODE A: free rollout (primary) ===")
+    print(f"  success_rate      : {succ}/{n} = {succ/n:.1%}")
+    print(f"  overhead vs BFS   : {quantiles(overheads)}")
+    if overheads:
+        opt = sum(1 for o in overheads if o == 0) / len(overheads)
+        cat3 = sum(1 for o in overheads if o >= 3) / len(overheads)
+        print(f"  bfs_optimal_rate  : {opt:.1%}  (overhead==0 on successes)")
+        print(f"  catastrophic_rate : {cat3:.1%}  (overhead>=3 on successes)")
+    if fail_diff:
+        print(f"  failures by bfs_len: {dict(sorted(fail_diff.items()))}")
+
+    print("\n=== MODE B: gold-path step agreement ===")
+    if gold_steps_total:
+        print(f"  step_match (mlp==bfs_optimal): "
+              f"{gold_steps_match}/{gold_steps_total} = "
+              f"{gold_steps_match/gold_steps_total:.1%}")
+    tot_div = sum(v for k, v in cat.items() if k != "agree_optimal")
+    print(f"  divergence categories (of {tot_div} divergent steps):")
+    for k in ["smarter_than_recorded", "imitated_recorded", "true_error",
+              "div_teacher_undefined"]:
+        c = cat.get(k, 0)
+        print(f"    {k:<22s} {c:6d}  "
+              f"({c/tot_div:.1%})" if tot_div else f"    {k}: 0")
+    print("\n  per-action confusion (bfs_gold -> model pick), "
+          "top mismatches:")
+    for ga in sorted(confusion):
+        row = confusion[ga]
+        miss = sum(v for k, v in row.items() if k != ga)
+        if miss:
+            top = sorted(((v, k) for k, v in row.items() if k != ga),
+                         reverse=True)[:3]
+            tops = ", ".join(f"{k}:{v}" for v, k in top)
+            print(f"    {ga:<18s} {miss} mismatches -> {tops}")
+
+
+if __name__ == "__main__":
+    main()

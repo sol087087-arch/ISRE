@@ -1,0 +1,35 @@
+model_id,family,source_log,policy,params,best_val_loss,final_val_loss,final_val_acc,final_avg_gold_rank,completed
+kan_h16_s0,raw KAN,leaderboards/v7/logs/train_v7_kan_h16_s0.log,"KAN width=[27,16,1]",4480,0.5877,0.5877,0.781,1.35,True
+kan_h2_s0,raw KAN,leaderboards/v7/logs/train_v7_kan_h2_s0.log,"KAN width=[27,2,1]",560,0.7356,0.7383,0.723,1.47,True
+kan_h32_s0,raw KAN,leaderboards/v7/logs/train_v7_kan_h32_s0.log,"KAN width=[27,32,1]",8960,0.5802,0.5802,0.787,1.34,True
+kan_h4_s0,raw KAN,leaderboards/v7/logs/train_v7_kan_h4_s0.log,"KAN width=[27,4,1]",1120,0.6561,0.6566,0.75,1.4,True
+kan_h8_s0,raw KAN,leaderboards/v7/logs/train_v7_kan_h8_s0.log,"KAN width=[27,8,1]",2240,0.6171,0.6171,0.767,1.37,True
+micro_mlp_h16_s0,micro-MLP,leaderboards/v7/logs/train_v7_micro_mlp_h16_s0.log,"MLP action_emb=16, hidden=32",10065,0.3326,0.3326,0.888,1.16,True
+micro_mlp_h32_s0,micro-MLP,leaderboards/v7/logs/train_v7_micro_mlp_h32_s0.log,"MLP action_emb=32, hidden=64",38049,0.311,0.3458,0.895,1.16,True
+micro_mlp_h4_s0,micro-MLP,leaderboards/v7/logs/train_v7_micro_mlp_h4_s0.log,"MLP action_emb=4, hidden=8",837,0.7065,0.7145,0.728,1.49,True
+micro_mlp_h8_s0,micro-MLP,leaderboards/v7/logs/train_v7_micro_mlp_h8_s0.log,"MLP action_emb=8, hidden=16",2793,0.4967,0.4975,0.829,1.28,True
+mlp128_s0,MLP-128,leaderboards/v7/logs/train_v7_mlp128_s0.log,"MLP action_emb=64, hidden=128",474753,0.4996,0.5024,0.823,1.27,True
+encoder16_kan_b32_h16_s0,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder16_kan_b32_h16_s0.log,"Encoder-KAN bottleneck=32, kan_hidden=16, action_emb=8",13920,0.3322,0.3322,0.89,1.16,True
+encoder16_kan_b36_h16_s0,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder16_kan_b36_h16_s0.log,"Encoder-KAN bottleneck=36, kan_hidden=16, action_emb=8",14724,0.3425,0.3818,0.876,1.18,True
+encoder16_kan_b40_h16_s0,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder16_kan_b40_h16_s0.log,"Encoder-KAN bottleneck=40, kan_hidden=16, action_emb=8",15528,0.3123,0.3123,0.896,1.15,True
+encoder16_kan_b40_h16_s1,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder16_kan_b40_h16_s1.log,"Encoder-KAN bottleneck=40, kan_hidden=16, action_emb=8",15528,0.3506,0.3506,0.886,1.17,True
+encoder16_kan_b40_h16_s2,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder16_kan_b40_h16_s2.log,"Encoder-KAN bottleneck=40, kan_hidden=16, action_emb=8",15528,0.3358,0.3481,0.887,1.17,True
+encoder16_kan_b40_h20_s0,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder16_kan_b40_h20_s0.log,"Encoder-KAN bottleneck=40, kan_hidden=20, action_emb=8",17168,0.3184,0.3184,0.896,1.15,True
+encoder16_kan_b40_h24_s0,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder16_kan_b40_h24_s0.log,"Encoder-KAN bottleneck=40, kan_hidden=24, action_emb=8",18808,0.3452,0.3547,0.882,1.17,True
+encoder16_kan_b44_h16_s0,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder16_kan_b44_h16_s0.log,"Encoder-KAN bottleneck=44, kan_hidden=16, action_emb=8",16332,0.3412,0.3515,0.887,1.17,True
+encoder16_kan_b48_h16_s0,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder16_kan_b48_h16_s0.log,"Encoder-KAN bottleneck=48, kan_hidden=16, action_emb=8",17136,0.3625,0.3625,0.883,1.17,True
+encoder16r6_kan_b40_h16_s0,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder16r6_kan_b40_h16_s0.log,"Encoder-KAN bottleneck=40, kan_hidden=16, action_emb=8",15528,0.3401,0.3432,0.89,1.16,True
+encoder16r6_kan_b40_h16_s1,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder16r6_kan_b40_h16_s1.log,"Encoder-KAN bottleneck=40, kan_hidden=16, action_emb=8",15528,0.337,0.337,0.889,1.16,True
+encoder16r6_kan_b40_h16_s2,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder16r6_kan_b40_h16_s2.log,"Encoder-KAN bottleneck=40, kan_hidden=16, action_emb=8",15528,0.3341,0.3473,0.888,1.16,True
+encoder16r8_kan_b40_h16_s0,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder16r8_kan_b40_h16_s0.log,"Encoder-KAN bottleneck=40, kan_hidden=16, action_emb=8",15528,0.3507,0.3616,0.885,1.17,True
+encoder_deep_kan_b40_h16_d2_s0,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder_deep_kan_b40_h16_d2_s0.log,"Encoder-Deep-KAN bottleneck=40, kan_hidden=16, depth=2, action_emb=8",18088,0.3357,0.3357,0.888,1.17,True
+encoder_kan_b16_h16_s0,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder_kan_b16_h16_s0.log,"Encoder-KAN bottleneck=16, kan_hidden=16, action_emb=8",5224,0.4763,0.4763,0.836,1.26,True
+encoder_kan_b16_h32_s0,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder_kan_b16_h32_s0.log,"Encoder-KAN bottleneck=16, kan_hidden=32, action_emb=8",7944,0.4599,0.4599,0.839,1.26,True
+encoder_kan_b20_h24_s0,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder_kan_b20_h24_s0.log,"Encoder-KAN bottleneck=20, kan_hidden=24, action_emb=8",7644,0.4387,0.4445,0.85,1.24,True
+encoder_kan_b24_h12_s0,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder_kan_b24_h12_s0.log,"Encoder-KAN bottleneck=24, kan_hidden=12, action_emb=8",5704,0.457,0.4654,0.837,1.26,True
+encoder_kan_b24_h16_s0,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder_kan_b24_h16_s0.log,"Encoder-KAN bottleneck=24, kan_hidden=16, action_emb=8",6704,0.4338,0.4338,0.852,1.23,True
+encoder_kan_b24_h24_s0,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder_kan_b24_h24_s0.log,"Encoder-KAN bottleneck=24, kan_hidden=24, action_emb=8",8704,0.4464,0.4464,0.849,1.24,True
+encoder_kan_b24_h32_s0,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder_kan_b24_h32_s0.log,"Encoder-KAN bottleneck=24, kan_hidden=32, action_emb=8",10704,0.4697,0.4697,0.839,1.26,True
+encoder_kan_b28_h16_s0,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder_kan_b28_h16_s0.log,"Encoder-KAN bottleneck=28, kan_hidden=16, action_emb=8",7444,0.4464,0.461,0.842,1.25,True
+encoder_kan_b32_h32_s0,Encoder-KAN,leaderboards/v7/B_KAN_RESCUE/encoder_kan_b32_h32_s0.log,"Encoder-KAN bottleneck=32, kan_hidden=32, action_emb=8",13464,0.4464,0.4464,0.847,1.25,True
+kan_ae_h16_s0,KAN-AE,leaderboards/v7/B_KAN_RESCUE/kan_ae_h16_s0.log,"KAN-AE width=[35,16,1] action_emb=8",5840,0.5924,0.5924,0.777,1.35,True
