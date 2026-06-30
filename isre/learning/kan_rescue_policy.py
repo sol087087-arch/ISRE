@@ -13,10 +13,15 @@ Variants:
       ASTEncoder node embedding + learned action embedding
       -> linear bottleneck -> efficient_kan KAN -> score.
 
+  - EncoderDeepKANPolicy:
+      Same representation path as EncoderKANPolicy, but the efficient_kan
+      scorer has multiple KAN hidden layers.
+
 The point is to separate fairness regimes:
   raw KAN       = interpretable feature-only baseline.
   kan_ae        = feature-only baseline plus the action embedding that MLP has.
   encoder_kan   = same learned AST representation family as MLP, KAN scorer.
+  encoder_deep_kan = depth rescue: same inputs, deeper KAN scorer.
 """
 
 from typing import List, Tuple
@@ -224,3 +229,45 @@ class EncoderKANPolicy(nn.Module):
             )
         target = torch.tensor(gold_idx, device=scores.device)
         return nn.functional.cross_entropy(scores.unsqueeze(0), target.unsqueeze(0))
+
+
+class EncoderDeepKANPolicy(EncoderKANPolicy):
+    """Encoder-KAN with a deeper efficient_kan scorer.
+
+    This is an append-only depth probe. The input representation is identical to
+    EncoderKANPolicy; only the KAN scorer changes from [B,H,1] to
+    [B,H,...,H,1]. This keeps the experiment about depth rather than changing
+    the encoder or candidate features.
+    """
+
+    def __init__(
+        self,
+        node_emb_dim: int,
+        hidden: int = 16,
+        action_emb_dim: int = 8,
+        bottleneck_dim: int = 16,
+        depth: int = 2,
+        grid: int = 5,
+        k: int = 3,
+        seed: int = 0,
+    ):
+        nn.Module.__init__(self)
+        from efficient_kan import KAN
+
+        if depth < 2:
+            raise ValueError("EncoderDeepKANPolicy requires depth >= 2.")
+
+        torch.manual_seed(seed)
+        self.node_emb_dim = node_emb_dim
+        self.action_emb_dim = action_emb_dim
+        self.bottleneck_dim = bottleneck_dim
+        self.hidden = hidden
+        self.depth = depth
+
+        self.action_embedding = nn.Embedding(len(_ACTION_ORDER), action_emb_dim)
+        self.bottleneck = nn.Linear(node_emb_dim + action_emb_dim, bottleneck_dim)
+        self.kan = KAN(
+            [bottleneck_dim] + [hidden] * depth + [1],
+            grid_size=grid,
+            spline_order=k,
+        )

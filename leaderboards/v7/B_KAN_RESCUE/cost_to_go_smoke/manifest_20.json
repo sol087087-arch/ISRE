@@ -1,0 +1,16 @@
+{
+  "data_dir": "isre\\trajectories_v7_bfs",
+  "output": "leaderboards\\v7\\B_KAN_RESCUE\\cost_to_go_smoke\\labels_20.jsonl",
+  "files_seen": 98472,
+  "states_written": 20,
+  "candidates_written": 104,
+  "states_with_finite_label": 20,
+  "multi_optimal_states": 10,
+  "recorded_gold_not_cost_optimal": 0,
+  "skipped_steps": 0,
+  "cache_entries": 95,
+  "max_expansions": 2000,
+  "max_depth": 12,
+  "elapsed_seconds": 52.63493776321411,
+  "states_per_second": 0.3799757508971113
+}

@@ -53,6 +53,7 @@ def load_model(ckpt_path: str, hidden_dim: int, num_rounds: int, device: str,
                action_emb_dim: int | None = None,
                kan_action_emb_dim: int | None = None,
                kan_bottleneck_dim: int | None = None,
+               kan_depth: int | None = None,
                kan_grid: int | None = None,
                kan_spline_order: int | None = None):
     ck = torch.load(ckpt_path, map_location=device)
@@ -63,6 +64,7 @@ def load_model(ckpt_path: str, hidden_dim: int, num_rounds: int, device: str,
         "kan_spline_order",
         3 if kan_spline_order is None else kan_spline_order,
     ))
+    kan_depth = int(ck.get("kan_depth", 2 if kan_depth is None else kan_depth))
     if policy_kind == "kan":
         # KAN arm: NO encoder. enc is returned as None and every scoring
         # helper below branches on that. State is a plain torch state_dict
@@ -95,8 +97,11 @@ def load_model(ckpt_path: str, hidden_dim: int, num_rounds: int, device: str,
         return None, pol
     hidden_dim = int(ck.get("hidden_dim", hidden_dim))
     num_rounds = int(ck.get("num_rounds", num_rounds))
-    if policy_kind == "encoder_kan":
-        from isre.learning.kan_rescue_policy import EncoderKANPolicy
+    if policy_kind in {"encoder_kan", "encoder_deep_kan"}:
+        from isre.learning.kan_rescue_policy import (
+            EncoderDeepKANPolicy,
+            EncoderKANPolicy,
+        )
         kan_action_emb = int(ck.get(
             "kan_action_emb_dim",
             8 if kan_action_emb_dim is None else kan_action_emb_dim,
@@ -106,14 +111,25 @@ def load_model(ckpt_path: str, hidden_dim: int, num_rounds: int, device: str,
             16 if kan_bottleneck_dim is None else kan_bottleneck_dim,
         ))
         enc = ASTEncoder(hidden_dim=hidden_dim, num_rounds=num_rounds).to(device)
-        pol = EncoderKANPolicy(
-            node_emb_dim=hidden_dim * 2,
-            hidden=kan_hidden,
-            action_emb_dim=kan_action_emb,
-            bottleneck_dim=kan_bottleneck,
-            grid=kan_grid,
-            k=kan_spline_order,
-        ).to(device)
+        if policy_kind == "encoder_deep_kan":
+            pol = EncoderDeepKANPolicy(
+                node_emb_dim=hidden_dim * 2,
+                hidden=kan_hidden,
+                action_emb_dim=kan_action_emb,
+                bottleneck_dim=kan_bottleneck,
+                depth=kan_depth,
+                grid=kan_grid,
+                k=kan_spline_order,
+            ).to(device)
+        else:
+            pol = EncoderKANPolicy(
+                node_emb_dim=hidden_dim * 2,
+                hidden=kan_hidden,
+                action_emb_dim=kan_action_emb,
+                bottleneck_dim=kan_bottleneck,
+                grid=kan_grid,
+                k=kan_spline_order,
+            ).to(device)
         enc.load_state_dict(ck["encoder"])
         pol.load_state_dict(ck["policy"])
         enc.eval(); pol.eval()
@@ -264,6 +280,8 @@ def main():
                          "Checkpoint metadata wins.")
     ap.add_argument("--kan-bottleneck-dim", type=int, default=None,
                     help="Bottleneck width for encoder_kan. Checkpoint metadata wins.")
+    ap.add_argument("--kan-depth", type=int, default=None,
+                    help="Hidden KAN layer count for encoder_deep_kan. Checkpoint metadata wins.")
     ap.add_argument("--kan-grid", type=int, default=None,
                     help="efficient_kan grid_size. Checkpoint metadata wins.")
     ap.add_argument("--kan-spline-order", type=int, default=None,
@@ -278,12 +296,13 @@ def main():
                     help="MODE A beam width (1 = greedy; beam-1 must "
                          "reproduce greedy exactly — built-in correctness gate)")
     ap.add_argument("--device", default="auto")
-    ap.add_argument("--policy", choices=["mlp", "kan", "kan_ae", "encoder_kan"],
+    ap.add_argument("--policy", choices=["mlp", "kan", "kan_ae", "encoder_kan", "encoder_deep_kan"],
                     default="mlp",
                     help="mlp = GRU encoder + MLP (default, unchanged). "
                          "kan = KAN over hand-crafted features (no encoder). "
                          "kan_ae = kan + learned action embedding. "
-                         "encoder_kan = ASTEncoder + bottleneck KAN head.")
+                         "encoder_kan = ASTEncoder + bottleneck KAN head. "
+                         "encoder_deep_kan = same inputs + deeper KAN head.")
     ap.add_argument("--kan-hidden", type=int, default=16,
                     help="KAN hidden width; must match training. "
                          "Only used when --policy kan.")
@@ -300,6 +319,7 @@ def main():
                           action_emb_dim=args.action_emb_dim,
                           kan_action_emb_dim=args.kan_action_emb_dim,
                           kan_bottleneck_dim=args.kan_bottleneck_dim,
+                          kan_depth=args.kan_depth,
                           kan_grid=args.kan_grid,
                           kan_spline_order=args.kan_spline_order)
     engine = SymbolicEngine()

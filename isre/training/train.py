@@ -15,7 +15,7 @@ import time
 import argparse
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import List, Tuple, Optional, Dict
+from typing import Any, List, Tuple, Optional, Dict
 from collections import defaultdict
 
 import torch
@@ -24,6 +24,7 @@ import torch.optim as optim
 
 from isre.symbolic.isre_ast import ASTNode
 from isre.symbolic.symbolic_engine import SymbolicEngine, ActionType
+from isre.baselines.bfs_optimal import SUCCESS, bfs_optimal
 
 from isre.learning.encoder import ASTEncoder
 from isre.learning.policy import PolicyNetwork
@@ -37,6 +38,8 @@ from isre.learning.policy import PolicyNetwork
 class TrainingStep:
     """One (state, candidates, gold) training pair."""
     ast: ASTNode
+    canonical_ast: ASTNode
+    canonical_expr: str
     candidate_actions: List[Tuple[int, ActionType]]
     gold_action: ActionType
     gold_node_id: int
@@ -67,6 +70,7 @@ def load_trajectories(data_dir: str, max_files: int = None) -> List[TrainingStep
         for step_data in traj["steps"]:
             try:
                 ast = ASTNode.from_dict(step_data["state"])
+                canonical_ast = ASTNode.from_dict(traj["canonical_ast"])
             except Exception:
                 skipped += 1
                 continue
@@ -96,6 +100,8 @@ def load_trajectories(data_dir: str, max_files: int = None) -> List[TrainingStep
 
             steps.append(TrainingStep(
                 ast=ast,
+                canonical_ast=canonical_ast,
+                canonical_expr=traj["canonical_expr"],
                 candidate_actions=candidate_actions,
                 gold_action=gold_action,
                 gold_node_id=gold_node_id,
@@ -108,6 +114,40 @@ def load_trajectories(data_dir: str, max_files: int = None) -> List[TrainingStep
         print(f"  Skipped {skipped} invalid steps")
 
     return steps
+
+
+def load_cost_to_go_label_cache(path: str | None) -> Dict[Tuple[str, str], Dict[str, Any]]:
+    """Load offline candidate cost labels produced by build_cost_to_go_labels.py.
+
+    Keyed by (state_expr, canonical_expr). Candidate identity is the same pair
+    used everywhere else in training: (node_id, action.value).
+    """
+    if not path:
+        return {}
+
+    label_path = Path(path)
+    cache: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    with label_path.open(encoding="utf-8") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            rec = json.loads(line)
+            key = (rec["state_expr"], rec["canonical_expr"])
+            costs = {}
+            optimal_pairs = set()
+            for cand in rec["candidate_costs"]:
+                pair = (int(cand["node_id"]), cand["action"])
+                costs[pair] = cand["remaining_bfs_distance"]
+                if cand.get("is_optimal"):
+                    optimal_pairs.add(pair)
+            cache[key] = {
+                "costs": costs,
+                "optimal_pairs": optimal_pairs,
+                "gold_index": rec.get("gold_index"),
+                "optimal_indices": rec.get("optimal_indices", []),
+            }
+    print(f"Loaded cost-to-go labels: {len(cache):,} states from {label_path}")
+    return cache
 
 
 # ====================== METRICS ======================
@@ -292,6 +332,7 @@ class Trainer:
         lr: float = 1e-3,
         weight_decay: float = 1e-4,
         device: str = "cpu",
+        cost_label_cache: Optional[Dict[Tuple[str, str], Dict[str, Any]]] = None,
     ):
         # encoder is None for the KAN arm (KAN scores hand-crafted features
         # directly from the AST state — no GRU encoder). All MLP-path
@@ -299,6 +340,7 @@ class Trainer:
         self.encoder = encoder.to(device) if encoder is not None else None
         self.policy = policy.to(device)
         self.device = device
+        self.cost_label_cache = cost_label_cache or {}
 
         if self.encoder is not None:
             trainable = list(encoder.parameters()) + list(policy.parameters())
@@ -321,6 +363,10 @@ class Trainer:
         epoch: int,
         total_epochs: int,
         accumulation_steps: int = 8,
+        loss_kind: str = "ce",
+        rank_margin: float = 1.0,
+        cost_max_expansions: int = 20000,
+        cost_max_depth: int = 20,
     ) -> EpochMetrics:
         """Train one epoch with temperature-weighted curriculum sampling."""
         if self.encoder is not None:
@@ -354,7 +400,13 @@ class Trainer:
               f"max_diff={max_diff} sampled[{hist_str}]")
 
         for i, step in enumerate(filtered):
-            loss, top1_correct, gold_rank = self._train_step(step)
+            loss, top1_correct, gold_rank = self._train_step(
+                step,
+                loss_kind=loss_kind,
+                rank_margin=rank_margin,
+                cost_max_expansions=cost_max_expansions,
+                cost_max_depth=cost_max_depth,
+            )
 
             if loss is None:
                 continue
@@ -391,7 +443,12 @@ class Trainer:
         return metrics
 
     def _train_step(
-        self, step: TrainingStep
+        self,
+        step: TrainingStep,
+        loss_kind: str = "ce",
+        rank_margin: float = 1.0,
+        cost_max_expansions: int = 20000,
+        cost_max_depth: int = 20,
     ) -> Tuple[Optional[torch.Tensor], bool, int]:
         """Process one training step. Returns (loss, top1_correct, gold_rank)."""
         try:
@@ -408,7 +465,9 @@ class Trainer:
             if scores.numel() == 0:
                 return None, False, 0
 
-            # Find gold index
+            # Find recorded/BFS-path gold index. This remains the default CE
+            # target and the fallback if cost-to-go search cannot label a
+            # state under its budget.
             gold_idx = None
             for j, (nid, action) in enumerate(step.candidate_actions):
                 if nid == step.gold_node_id and action == step.gold_action:
@@ -418,14 +477,73 @@ class Trainer:
             if gold_idx is None:
                 return None, False, 0
 
-            # Cross-entropy loss
-            target = torch.tensor(gold_idx, device=self.device)
-            loss = nn.functional.cross_entropy(scores.unsqueeze(0), target.unsqueeze(0))
+            if loss_kind == "rank_cost_to_go":
+                cached = self._cached_cost_to_go_labels(step)
+                if cached is not None:
+                    optimal_indices, candidate_costs = cached
+                else:
+                    optimal_indices, candidate_costs = self._cost_to_go_labels(
+                        step,
+                        max_expansions=cost_max_expansions,
+                        max_depth=cost_max_depth,
+                    )
+                if optimal_indices:
+                    log_probs = nn.functional.log_softmax(scores, dim=0)
+                    pos = torch.tensor(
+                        optimal_indices,
+                        dtype=torch.long,
+                        device=self.device,
+                    )
+                    # Multi-positive listwise objective: all candidates with
+                    # minimal remaining BFS distance are correct first moves.
+                    listwise_loss = -log_probs[pos].mean()
+
+                    neg_indices = [
+                        i for i, c in enumerate(candidate_costs)
+                        if i not in optimal_indices and c is not None
+                    ]
+                    if neg_indices:
+                        neg = torch.tensor(
+                            neg_indices,
+                            dtype=torch.long,
+                            device=self.device,
+                        )
+                        # Pairwise margin: every optimal candidate should
+                        # outrank every finite non-optimal candidate.
+                        margins = (
+                            rank_margin
+                            - scores[pos].unsqueeze(1)
+                            + scores[neg].unsqueeze(0)
+                        )
+                        pairwise_loss = torch.relu(margins).mean()
+                        loss = listwise_loss + pairwise_loss
+                    else:
+                        loss = listwise_loss
+
+                    metric_indices = optimal_indices
+                else:
+                    # Budget fallback: keep training rather than dropping the
+                    # sample, but do not pretend the multi-positive label was
+                    # available.
+                    target = torch.tensor(gold_idx, device=self.device)
+                    loss = nn.functional.cross_entropy(
+                        scores.unsqueeze(0),
+                        target.unsqueeze(0),
+                    )
+                    metric_indices = [gold_idx]
+            else:
+                # Cross-entropy loss on the recorded BFS path action.
+                target = torch.tensor(gold_idx, device=self.device)
+                loss = nn.functional.cross_entropy(
+                    scores.unsqueeze(0),
+                    target.unsqueeze(0),
+                )
+                metric_indices = [gold_idx]
 
             # Metrics
-            top1 = scores.argmax().item() == gold_idx
+            top1 = scores.argmax().item() in metric_indices
             ranked = scores.argsort(descending=True).tolist()
-            gold_rank = ranked.index(gold_idx) + 1  # 1-indexed
+            gold_rank = min(ranked.index(i) + 1 for i in metric_indices)
 
             return loss, top1, gold_rank
 
@@ -434,8 +552,96 @@ class Trainer:
             print(f"  WARNING: step failed: {e}")
             return None, False, 0
 
+    def _cached_cost_to_go_labels(
+        self,
+        step: TrainingStep,
+    ) -> Optional[Tuple[List[int], List[Optional[int]]]]:
+        """Map offline cost labels onto the current candidate order."""
+        if not self.cost_label_cache:
+            return None
+
+        key = (step.ast.to_expr(), step.canonical_expr)
+        rec = self.cost_label_cache.get(key)
+        if rec is None:
+            return None
+
+        costs_by_pair = rec["costs"]
+        optimal_pairs = rec["optimal_pairs"]
+        costs: List[Optional[int]] = []
+        optimal_indices: List[int] = []
+        for i, (node_id, action) in enumerate(step.candidate_actions):
+            pair = (int(node_id), action.value)
+            costs.append(costs_by_pair.get(pair))
+            if pair in optimal_pairs:
+                optimal_indices.append(i)
+
+        if not optimal_indices:
+            return None
+        return optimal_indices, costs
+
+    def _cost_to_go_labels(
+        self,
+        step: TrainingStep,
+        max_expansions: int,
+        max_depth: int,
+    ) -> Tuple[List[int], List[Optional[int]]]:
+        """Label candidates by remaining BFS distance after taking them.
+
+        Returns:
+            optimal_indices: every candidate with minimal finite remaining
+                distance to canonical form.
+            candidate_costs: remaining distance per candidate; None means
+                unknown under the BFS budget.
+
+        This is intentionally computed lazily and cached by child expression.
+        Full-dataset use may still be expensive; start with smoke/probe runs
+        and graduate to an offline label cache if the objective helps.
+        """
+        if not hasattr(self, "_cost_engine"):
+            self._cost_engine = SymbolicEngine()
+            self._cost_cache = {}
+
+        costs: List[Optional[int]] = []
+        canon_expr = step.canonical_expr
+        for nid, action in step.candidate_actions:
+            child = self._cost_engine.apply(step.ast, nid, action)
+            child_expr = child.to_expr()
+            if child_expr == canon_expr:
+                costs.append(0)
+                continue
+
+            key = (child_expr, canon_expr)
+            if key in self._cost_cache:
+                costs.append(self._cost_cache[key])
+                continue
+
+            outcome, dist = bfs_optimal(
+                child,
+                step.canonical_ast,
+                self._cost_engine,
+                max_expansions=max_expansions,
+                max_depth=max_depth,
+            )
+            value = dist if outcome == SUCCESS else None
+            self._cost_cache[key] = value
+            costs.append(value)
+
+        finite = [c for c in costs if c is not None]
+        if not finite:
+            return [], costs
+        best = min(finite)
+        optimal = [i for i, c in enumerate(costs) if c == best]
+        return optimal, costs
+
     @torch.no_grad()
-    def evaluate(self, steps: List[TrainingStep]) -> EpochMetrics:
+    def evaluate(
+        self,
+        steps: List[TrainingStep],
+        loss_kind: str = "ce",
+        rank_margin: float = 1.0,
+        cost_max_expansions: int = 20000,
+        cost_max_depth: int = 20,
+    ) -> EpochMetrics:
         """Evaluate on a set of steps (no gradient)."""
         if self.encoder is not None:
             self.encoder.eval()
@@ -444,7 +650,13 @@ class Trainer:
         metrics = EpochMetrics()
 
         for step in steps:
-            loss, top1_correct, gold_rank = self._train_step(step)
+            loss, top1_correct, gold_rank = self._train_step(
+                step,
+                loss_kind=loss_kind,
+                rank_margin=rank_margin,
+                cost_max_expansions=cost_max_expansions,
+                cost_max_depth=cost_max_depth,
+            )
             if loss is None:
                 continue
 
@@ -482,12 +694,26 @@ def train(
     kan_hidden: int = 16,
     kan_action_emb_dim: int = 8,
     kan_bottleneck_dim: int = 16,
+    kan_depth: int = 2,
     kan_grid: int = 5,
     kan_spline_order: int = 3,
+    loss_kind: str = "ce",
+    rank_margin: float = 1.0,
+    cost_max_expansions: int = 20000,
+    cost_max_depth: int = 20,
+    cost_labels: str | None = None,
 ):
     if device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Device: {device}  Seed: {seed}")
+    print(f"Loss: {loss_kind}")
+    cost_label_cache = load_cost_to_go_label_cache(cost_labels)
+    if loss_kind == "rank_cost_to_go":
+        print(
+            "  cost-to-go BFS labels: "
+            f"max_expansions={cost_max_expansions}, "
+            f"max_depth={cost_max_depth}, margin={rank_margin}"
+        )
 
     # Global seeding — REQUIRED for the 5-seed campaign to be meaningful.
     # curriculum_target is already a pure function of epoch (identical
@@ -602,6 +828,32 @@ def train(
         print(f"  Encoder params: {sum(p.numel() for p in encoder.parameters()):,}")
         print(f"  Policy params:  {sum(p.numel() for p in policy.parameters()):,}")
         print(f"  Total params:   {total_params:,}")
+    elif policy_kind == "encoder_deep_kan":
+        # Depth rescue: same ASTEncoder/bottleneck inputs as Encoder-KAN, but
+        # the efficient_kan scorer has multiple hidden KAN layers.
+        from isre.learning.kan_rescue_policy import EncoderDeepKANPolicy
+        encoder = ASTEncoder(hidden_dim=hidden_dim, num_rounds=num_rounds)
+        policy = EncoderDeepKANPolicy(
+            node_emb_dim=hidden_dim * 2,
+            hidden=kan_hidden,
+            action_emb_dim=kan_action_emb_dim,
+            bottleneck_dim=kan_bottleneck_dim,
+            depth=kan_depth,
+            grid=kan_grid,
+            k=kan_spline_order,
+            seed=seed,
+        )
+
+        total_params = sum(p.numel() for p in encoder.parameters()) + \
+                       sum(p.numel() for p in policy.parameters())
+        print(
+            f"  Policy: Encoder-Deep-KAN bottleneck={kan_bottleneck_dim}, "
+            f"kan_hidden={kan_hidden}, depth={kan_depth}, "
+            f"action_emb={kan_action_emb_dim}"
+        )
+        print(f"  Encoder params: {sum(p.numel() for p in encoder.parameters()):,}")
+        print(f"  Policy params:  {sum(p.numel() for p in policy.parameters()):,}")
+        print(f"  Total params:   {total_params:,}")
     else:
         policy_hidden = hidden_dim if policy_hidden_dim is None else policy_hidden_dim
         encoder = ASTEncoder(hidden_dim=hidden_dim, num_rounds=num_rounds)
@@ -625,6 +877,7 @@ def train(
         policy=policy,
         lr=lr,
         device=device,
+        cost_label_cache=cost_label_cache,
     )
 
     # ── Training loop ──────────────────────────────────
@@ -639,12 +892,22 @@ def train(
         train_metrics = trainer.train_epoch(
             train_steps, epoch=epoch, total_epochs=epochs,
             accumulation_steps=accumulation_steps,
+            loss_kind=loss_kind,
+            rank_margin=rank_margin,
+            cost_max_expansions=cost_max_expansions,
+            cost_max_depth=cost_max_depth,
         )
         elapsed = time.time() - t0
         print(train_metrics.report(epoch, elapsed))
 
         # Validate
-        val_metrics = trainer.evaluate(val_steps)
+        val_metrics = trainer.evaluate(
+            val_steps,
+            loss_kind=loss_kind,
+            rank_margin=rank_margin,
+            cost_max_expansions=cost_max_expansions,
+            cost_max_depth=cost_max_depth,
+        )
         print(f"  VAL  | loss {val_metrics.avg_loss:.4f} | "
               f"acc {val_metrics.accuracy:.3f} | "
               f"avg_gold_rank {val_metrics.avg_gold_rank:.2f}")
@@ -664,6 +927,7 @@ def train(
                 "optimizer": trainer.optimizer.state_dict(),
                 "val_loss": best_val_loss,
                 "policy_kind": policy_kind,
+                "loss_kind": loss_kind,
             }
             # MLP arm keeps the exact original key set (encoder present);
             # KAN arm has no encoder.
@@ -678,6 +942,7 @@ def train(
                     ckpt["kan_hidden"] = kan_hidden
                     ckpt["kan_action_emb_dim"] = kan_action_emb_dim
                     ckpt["kan_bottleneck_dim"] = kan_bottleneck_dim
+                    ckpt["kan_depth"] = kan_depth
                     ckpt["kan_grid"] = kan_grid
                     ckpt["kan_spline_order"] = kan_spline_order
             else:
@@ -716,23 +981,43 @@ if __name__ == "__main__":
                         help="Global seed (random+torch+cuda). The 5-seed "
                              "campaign varies ONLY this; curriculum schedule "
                              "stays identical across seeds.")
-    parser.add_argument("--policy", choices=["mlp", "kan", "kan_ae", "encoder_kan"],
+    parser.add_argument("--policy", choices=["mlp", "kan", "kan_ae", "encoder_kan", "encoder_deep_kan"],
                         default="mlp",
                         help="mlp = GRU encoder + MLP (baseline, default, "
                              "byte-identical to pre-KAN). kan = KAN over "
                              "hand-crafted candidate features (no encoder). "
                              "kan_ae = kan + learned action embedding. "
-                             "encoder_kan = ASTEncoder + bottleneck KAN head.")
+                             "encoder_kan = ASTEncoder + bottleneck KAN head. "
+                             "encoder_deep_kan = same inputs + deeper KAN head.")
     parser.add_argument("--kan-hidden", type=int, default=16,
                         help="KAN hidden width.")
     parser.add_argument("--kan-action-emb-dim", type=int, default=8,
                         help="Action embedding width for kan_ae/encoder_kan.")
     parser.add_argument("--kan-bottleneck-dim", type=int, default=16,
                         help="Bottleneck width for encoder_kan.")
+    parser.add_argument("--kan-depth", type=int, default=2,
+                        help="Number of hidden KAN layers for encoder_deep_kan.")
     parser.add_argument("--kan-grid", type=int, default=5,
                         help="efficient_kan grid_size.")
     parser.add_argument("--kan-spline-order", type=int, default=3,
                         help="efficient_kan spline_order.")
+    parser.add_argument("--loss", choices=["ce", "rank_cost_to_go"],
+                        default="ce",
+                        help="ce = recorded BFS-path action CE. "
+                             "rank_cost_to_go = multi-positive listwise + "
+                             "pairwise margin over candidates with minimal "
+                             "BFS remaining distance.")
+    parser.add_argument("--rank-margin", type=float, default=1.0,
+                        help="Pairwise margin for --loss rank_cost_to_go.")
+    parser.add_argument("--cost-max-expansions", type=int, default=20000,
+                        help="BFS expansion budget per child state for "
+                             "cost-to-go labels.")
+    parser.add_argument("--cost-max-depth", type=int, default=20,
+                        help="BFS max depth for cost-to-go labels.")
+    parser.add_argument("--cost-labels", default=None,
+                        help="Optional JSONL cache from "
+                             "scripts/build_cost_to_go_labels.py. Used by "
+                             "--loss rank_cost_to_go before online BFS.")
     args = parser.parse_args()
 
     train(
@@ -753,6 +1038,12 @@ if __name__ == "__main__":
         kan_hidden=args.kan_hidden,
         kan_action_emb_dim=args.kan_action_emb_dim,
         kan_bottleneck_dim=args.kan_bottleneck_dim,
+        kan_depth=args.kan_depth,
         kan_grid=args.kan_grid,
         kan_spline_order=args.kan_spline_order,
+        loss_kind=args.loss,
+        rank_margin=args.rank_margin,
+        cost_max_expansions=args.cost_max_expansions,
+        cost_max_depth=args.cost_max_depth,
+        cost_labels=args.cost_labels,
     )
