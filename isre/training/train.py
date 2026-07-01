@@ -702,6 +702,7 @@ def train(
     cost_max_expansions: int = 20000,
     cost_max_depth: int = 20,
     cost_labels: str | None = None,
+    init_ckpt: str | None = None,
 ):
     if device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -871,6 +872,15 @@ def train(
         print(f"  Policy params:  {sum(p.numel() for p in policy.parameters()):,}")
         print(f"  Total params:   {total_params:,}")
 
+    if init_ckpt:
+        ckpt = torch.load(init_ckpt, map_location=device)
+        if encoder is not None:
+            if "encoder" not in ckpt:
+                raise KeyError(f"{init_ckpt} has no encoder state_dict")
+            encoder.load_state_dict(ckpt["encoder"])
+        policy.load_state_dict(ckpt["policy"])
+        print(f"  Initialized weights from: {init_ckpt}")
+
     # ── Trainer ────────────────────────────────────────
     trainer = Trainer(
         encoder=encoder,
@@ -928,6 +938,7 @@ def train(
                 "val_loss": best_val_loss,
                 "policy_kind": policy_kind,
                 "loss_kind": loss_kind,
+                "init_ckpt": init_ckpt,
             }
             # MLP arm keeps the exact original key set (encoder present);
             # KAN arm has no encoder.
@@ -977,6 +988,10 @@ if __name__ == "__main__":
     parser.add_argument("--max-files", type=int, default=None)
     parser.add_argument("--accumulation-steps", type=int, default=8)
     parser.add_argument("--save-dir", default="checkpoints")
+    parser.add_argument("--init-ckpt", default=None,
+                        help="Optional warm-start checkpoint for fine-tuning. "
+                             "Loads encoder/policy weights only; optimizer is "
+                             "fresh for the new loss/data.")
     parser.add_argument("--seed", type=int, default=0,
                         help="Global seed (random+torch+cuda). The 5-seed "
                              "campaign varies ONLY this; curriculum schedule "
@@ -1033,6 +1048,7 @@ if __name__ == "__main__":
         max_files=args.max_files,
         accumulation_steps=args.accumulation_steps,
         save_dir=args.save_dir,
+        init_ckpt=args.init_ckpt,
         seed=args.seed,
         policy_kind=args.policy,
         kan_hidden=args.kan_hidden,

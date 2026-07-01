@@ -236,6 +236,62 @@ experiment is therefore:
 4. evaluate on the same v7 held-out split, greedy and beam-5
 ```
 
+## Hard-State Mining / Probe Cache
+
+The probe-cache path is implemented as an append-only data-mining stage:
+
+```text
+scripts/mine_hard_states.py
+```
+
+It rolls out a checkpoint, labels each visited state with cost-to-go candidate
+labels, and keeps states where the model's top action is not cost-optimal or
+where the optimal/non-optimal score margin is small. It writes both:
+
+```text
+hard_labels.jsonl       # multi-positive cost-to-go labels
+hard_trajectories/      # one trainable trajectory per hard state
+```
+
+Important leakage guard:
+
+```text
+Default split is train.
+The held-out trajectory ids are read from the checkpoint's val_traj_ids.json.
+The script refuses to guess the split.
+```
+
+Smoke result on a small public checkpoint:
+
+```text
+checkpoint: checkpoints_encoder_kan_b28_h16_s0
+source split: train
+trajectories scanned: 10
+rollout states labeled: 24
+hard states written: 1
+model top not cost-optimal: 1
+low-margin states: 1
+multi-optimal labeled states: 12 / 24
+```
+
+This confirms two things:
+
+```text
+1. true hard states are sparse, so targeted mining is the right tool;
+2. multi-optimal first moves are common, so single-label CE is too narrow.
+```
+
+Warm-start fine-tune is also supported:
+
+```text
+--init-ckpt <best.pt>
+```
+
+This loads encoder/policy weights only and starts a fresh optimizer for the new
+loss/data. A smoke fine-tune on the mined hard trajectory successfully loaded
+the checkpoint, consumed `hard_labels.jsonl`, and trained with
+`--loss rank_cost_to_go`.
+
 ## B4: Encoder Capacity + Bottleneck Rescue
 
 Latest run:
