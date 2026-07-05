@@ -1,0 +1,464 @@
+{
+  "trajectory_id": "hard_0000024",
+  "canonical_expr": "((-2 * (x)^3) + (-6 * (x)^2) + (6 * x))",
+  "canonical_ast": {
+    "type": "ADD",
+    "value": null,
+    "children": [
+      {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "NUMBER",
+            "value": "-2",
+            "children": []
+          },
+          {
+            "type": "POW",
+            "value": null,
+            "children": [
+              {
+                "type": "VARIABLE",
+                "value": "x",
+                "children": []
+              },
+              {
+                "type": "NUMBER",
+                "value": "3",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "NUMBER",
+            "value": "-6",
+            "children": []
+          },
+          {
+            "type": "POW",
+            "value": null,
+            "children": [
+              {
+                "type": "VARIABLE",
+                "value": "x",
+                "children": []
+              },
+              {
+                "type": "NUMBER",
+                "value": "2",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "NUMBER",
+            "value": "6",
+            "children": []
+          },
+          {
+            "type": "VARIABLE",
+            "value": "x",
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "original_expr": "(((-1 * (1 * (x)^3)) + (-1 * (x)^3)) + (-6 * (x)^2) + (((2 * x) + (3 * x)) + (1 * x)))",
+  "original_ast": {
+    "type": "ADD",
+    "value": null,
+    "children": [
+      {
+        "type": "ADD",
+        "value": null,
+        "children": [
+          {
+            "type": "MUL",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "-1",
+                "children": []
+              },
+              {
+                "type": "MUL",
+                "value": null,
+                "children": [
+                  {
+                    "type": "NUMBER",
+                    "value": "1",
+                    "children": []
+                  },
+                  {
+                    "type": "POW",
+                    "value": null,
+                    "children": [
+                      {
+                        "type": "VARIABLE",
+                        "value": "x",
+                        "children": []
+                      },
+                      {
+                        "type": "NUMBER",
+                        "value": "3",
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "MUL",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "-1",
+                "children": []
+              },
+              {
+                "type": "POW",
+                "value": null,
+                "children": [
+                  {
+                    "type": "VARIABLE",
+                    "value": "x",
+                    "children": []
+                  },
+                  {
+                    "type": "NUMBER",
+                    "value": "3",
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "NUMBER",
+            "value": "-6",
+            "children": []
+          },
+          {
+            "type": "POW",
+            "value": null,
+            "children": [
+              {
+                "type": "VARIABLE",
+                "value": "x",
+                "children": []
+              },
+              {
+                "type": "NUMBER",
+                "value": "2",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "ADD",
+        "value": null,
+        "children": [
+          {
+            "type": "ADD",
+            "value": null,
+            "children": [
+              {
+                "type": "MUL",
+                "value": null,
+                "children": [
+                  {
+                    "type": "NUMBER",
+                    "value": "2",
+                    "children": []
+                  },
+                  {
+                    "type": "VARIABLE",
+                    "value": "x",
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "type": "MUL",
+                "value": null,
+                "children": [
+                  {
+                    "type": "NUMBER",
+                    "value": "3",
+                    "children": []
+                  },
+                  {
+                    "type": "VARIABLE",
+                    "value": "x",
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "MUL",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "1",
+                "children": []
+              },
+              {
+                "type": "VARIABLE",
+                "value": "x",
+                "children": []
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "steps": [
+    {
+      "state": {
+        "type": "ADD",
+        "value": null,
+        "children": [
+          {
+            "type": "ADD",
+            "value": null,
+            "children": [
+              {
+                "type": "MUL",
+                "value": null,
+                "children": [
+                  {
+                    "type": "NUMBER",
+                    "value": "-1",
+                    "children": []
+                  },
+                  {
+                    "type": "MUL",
+                    "value": null,
+                    "children": [
+                      {
+                        "type": "NUMBER",
+                        "value": "1",
+                        "children": []
+                      },
+                      {
+                        "type": "POW",
+                        "value": null,
+                        "children": [
+                          {
+                            "type": "VARIABLE",
+                            "value": "x",
+                            "children": []
+                          },
+                          {
+                            "type": "NUMBER",
+                            "value": "3",
+                            "children": []
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "MUL",
+                "value": null,
+                "children": [
+                  {
+                    "type": "NUMBER",
+                    "value": "-1",
+                    "children": []
+                  },
+                  {
+                    "type": "POW",
+                    "value": null,
+                    "children": [
+                      {
+                        "type": "VARIABLE",
+                        "value": "x",
+                        "children": []
+                      },
+                      {
+                        "type": "NUMBER",
+                        "value": "3",
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "MUL",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "-6",
+                "children": []
+              },
+              {
+                "type": "POW",
+                "value": null,
+                "children": [
+                  {
+                    "type": "VARIABLE",
+                    "value": "x",
+                    "children": []
+                  },
+                  {
+                    "type": "NUMBER",
+                    "value": "2",
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "ADD",
+            "value": null,
+            "children": [
+              {
+                "type": "ADD",
+                "value": null,
+                "children": [
+                  {
+                    "type": "MUL",
+                    "value": null,
+                    "children": [
+                      {
+                        "type": "NUMBER",
+                        "value": "2",
+                        "children": []
+                      },
+                      {
+                        "type": "VARIABLE",
+                        "value": "x",
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "type": "MUL",
+                    "value": null,
+                    "children": [
+                      {
+                        "type": "NUMBER",
+                        "value": "3",
+                        "children": []
+                      },
+                      {
+                        "type": "VARIABLE",
+                        "value": "x",
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "MUL",
+                "value": null,
+                "children": [
+                  {
+                    "type": "NUMBER",
+                    "value": "1",
+                    "children": []
+                  },
+                  {
+                    "type": "VARIABLE",
+                    "value": "x",
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "state_expr": "(((-1 * (1 * (x)^3)) + (-1 * (x)^3)) + (-6 * (x)^2) + (((2 * x) + (3 * x)) + (1 * x)))",
+      "candidate_actions": [
+        [
+          0,
+          "FLATTEN_ADD"
+        ],
+        [
+          0,
+          "SORT_COMMUTATIVE"
+        ],
+        [
+          1,
+          "SORT_COMMUTATIVE"
+        ],
+        [
+          2,
+          "FLATTEN_MUL"
+        ],
+        [
+          4,
+          "REMOVE_ONE"
+        ],
+        [
+          19,
+          "FLATTEN_ADD"
+        ],
+        [
+          19,
+          "SORT_COMMUTATIVE"
+        ],
+        [
+          20,
+          "COMBINE_COEFF"
+        ],
+        [
+          27,
+          "REMOVE_ONE"
+        ]
+      ],
+      "gold_action": "REMOVE_ONE",
+      "gold_node_id": 4,
+      "complexity": 0,
+      "hard_reasons": [
+        "model_top_not_cost_optimal",
+        "low_margin"
+      ],
+      "source_trajectory_id": "traj_0000622",
+      "source_rollout_step": 1
+    }
+  ],
+  "difficulty": 4,
+  "inverse_sequence": [],
+  "source": "hard_state_rollout"
+}

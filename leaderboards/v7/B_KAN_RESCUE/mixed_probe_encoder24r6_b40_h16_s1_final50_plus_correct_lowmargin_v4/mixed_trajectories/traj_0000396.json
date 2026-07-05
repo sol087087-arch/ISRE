@@ -1,0 +1,203 @@
+{
+  "trajectory_id": "traj_0000330",
+  "canonical_expr": "(-2 * (x)^2)",
+  "canonical_ast": {
+    "type": "MUL",
+    "value": null,
+    "children": [
+      {
+        "type": "NUMBER",
+        "value": "-2",
+        "children": []
+      },
+      {
+        "type": "POW",
+        "value": null,
+        "children": [
+          {
+            "type": "VARIABLE",
+            "value": "x",
+            "children": []
+          },
+          {
+            "type": "NUMBER",
+            "value": "2",
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "original_expr": "(-2 * ((1 * x))^(1 + 1))",
+  "original_ast": {
+    "type": "MUL",
+    "value": null,
+    "children": [
+      {
+        "type": "NUMBER",
+        "value": "-2",
+        "children": []
+      },
+      {
+        "type": "POW",
+        "value": null,
+        "children": [
+          {
+            "type": "MUL",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "1",
+                "children": []
+              },
+              {
+                "type": "VARIABLE",
+                "value": "x",
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "ADD",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "1",
+                "children": []
+              },
+              {
+                "type": "NUMBER",
+                "value": "1",
+                "children": []
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "steps": [
+    {
+      "state": {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "NUMBER",
+            "value": "-2",
+            "children": []
+          },
+          {
+            "type": "POW",
+            "value": null,
+            "children": [
+              {
+                "type": "MUL",
+                "value": null,
+                "children": [
+                  {
+                    "type": "NUMBER",
+                    "value": "1",
+                    "children": []
+                  },
+                  {
+                    "type": "VARIABLE",
+                    "value": "x",
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "type": "ADD",
+                "value": null,
+                "children": [
+                  {
+                    "type": "NUMBER",
+                    "value": "1",
+                    "children": []
+                  },
+                  {
+                    "type": "NUMBER",
+                    "value": "1",
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "state_expr": "(-2 * ((1 * x))^(1 + 1))",
+      "candidate_actions": [
+        [
+          3,
+          "REMOVE_ONE"
+        ],
+        [
+          6,
+          "FOLD_CONST"
+        ]
+      ],
+      "gold_action": "REMOVE_ONE",
+      "gold_node_id": 3,
+      "complexity": 13
+    },
+    {
+      "state": {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "NUMBER",
+            "value": "-2",
+            "children": []
+          },
+          {
+            "type": "POW",
+            "value": null,
+            "children": [
+              {
+                "type": "VARIABLE",
+                "value": "x",
+                "children": []
+              },
+              {
+                "type": "ADD",
+                "value": null,
+                "children": [
+                  {
+                    "type": "NUMBER",
+                    "value": "1",
+                    "children": []
+                  },
+                  {
+                    "type": "NUMBER",
+                    "value": "1",
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "state_expr": "(-2 * (x)^(1 + 1))",
+      "candidate_actions": [
+        [
+          4,
+          "FOLD_CONST"
+        ]
+      ],
+      "gold_action": "FOLD_CONST",
+      "gold_node_id": 4,
+      "complexity": 10
+    }
+  ],
+  "difficulty": 2,
+  "inverse_sequence": [
+    "UNFOLD_CONST",
+    "INTRODUCE_REDUNDANT_ONE"
+  ]
+}

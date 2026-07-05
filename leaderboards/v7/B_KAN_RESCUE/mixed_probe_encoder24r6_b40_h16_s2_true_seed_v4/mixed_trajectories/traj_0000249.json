@@ -1,0 +1,664 @@
+{
+  "trajectory_id": "traj_0000213",
+  "canonical_expr": "((x)^4 + (-6 * (x)^3) + (3 * (x)^2))",
+  "canonical_ast": {
+    "type": "ADD",
+    "value": null,
+    "children": [
+      {
+        "type": "POW",
+        "value": null,
+        "children": [
+          {
+            "type": "VARIABLE",
+            "value": "x",
+            "children": []
+          },
+          {
+            "type": "NUMBER",
+            "value": "4",
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "NUMBER",
+            "value": "-6",
+            "children": []
+          },
+          {
+            "type": "POW",
+            "value": null,
+            "children": [
+              {
+                "type": "VARIABLE",
+                "value": "x",
+                "children": []
+              },
+              {
+                "type": "NUMBER",
+                "value": "3",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "NUMBER",
+            "value": "3",
+            "children": []
+          },
+          {
+            "type": "POW",
+            "value": null,
+            "children": [
+              {
+                "type": "VARIABLE",
+                "value": "x",
+                "children": []
+              },
+              {
+                "type": "NUMBER",
+                "value": "2",
+                "children": []
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "original_expr": "((x)^4 + ((-4 * ((x)^1 * (x)^2)) + (-2 * (x)^3)) + (3 * (1 * (x)^2)))",
+  "original_ast": {
+    "type": "ADD",
+    "value": null,
+    "children": [
+      {
+        "type": "POW",
+        "value": null,
+        "children": [
+          {
+            "type": "VARIABLE",
+            "value": "x",
+            "children": []
+          },
+          {
+            "type": "NUMBER",
+            "value": "4",
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "ADD",
+        "value": null,
+        "children": [
+          {
+            "type": "MUL",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "-4",
+                "children": []
+              },
+              {
+                "type": "MUL",
+                "value": null,
+                "children": [
+                  {
+                    "type": "POW",
+                    "value": null,
+                    "children": [
+                      {
+                        "type": "VARIABLE",
+                        "value": "x",
+                        "children": []
+                      },
+                      {
+                        "type": "NUMBER",
+                        "value": "1",
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "type": "POW",
+                    "value": null,
+                    "children": [
+                      {
+                        "type": "VARIABLE",
+                        "value": "x",
+                        "children": []
+                      },
+                      {
+                        "type": "NUMBER",
+                        "value": "2",
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "MUL",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "-2",
+                "children": []
+              },
+              {
+                "type": "POW",
+                "value": null,
+                "children": [
+                  {
+                    "type": "VARIABLE",
+                    "value": "x",
+                    "children": []
+                  },
+                  {
+                    "type": "NUMBER",
+                    "value": "3",
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "NUMBER",
+            "value": "3",
+            "children": []
+          },
+          {
+            "type": "MUL",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "1",
+                "children": []
+              },
+              {
+                "type": "POW",
+                "value": null,
+                "children": [
+                  {
+                    "type": "VARIABLE",
+                    "value": "x",
+                    "children": []
+                  },
+                  {
+                    "type": "NUMBER",
+                    "value": "2",
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "steps": [
+    {
+      "state": {
+        "type": "ADD",
+        "value": null,
+        "children": [
+          {
+            "type": "POW",
+            "value": null,
+            "children": [
+              {
+                "type": "VARIABLE",
+                "value": "x",
+                "children": []
+              },
+              {
+                "type": "NUMBER",
+                "value": "4",
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "ADD",
+            "value": null,
+            "children": [
+              {
+                "type": "MUL",
+                "value": null,
+                "children": [
+                  {
+                    "type": "NUMBER",
+                    "value": "-4",
+                    "children": []
+                  },
+                  {
+                    "type": "MUL",
+                    "value": null,
+                    "children": [
+                      {
+                        "type": "POW",
+                        "value": null,
+                        "children": [
+                          {
+                            "type": "VARIABLE",
+                            "value": "x",
+                            "children": []
+                          },
+                          {
+                            "type": "NUMBER",
+                            "value": "1",
+                            "children": []
+                          }
+                        ]
+                      },
+                      {
+                        "type": "POW",
+                        "value": null,
+                        "children": [
+                          {
+                            "type": "VARIABLE",
+                            "value": "x",
+                            "children": []
+                          },
+                          {
+                            "type": "NUMBER",
+                            "value": "2",
+                            "children": []
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "MUL",
+                "value": null,
+                "children": [
+                  {
+                    "type": "NUMBER",
+                    "value": "-2",
+                    "children": []
+                  },
+                  {
+                    "type": "POW",
+                    "value": null,
+                    "children": [
+                      {
+                        "type": "VARIABLE",
+                        "value": "x",
+                        "children": []
+                      },
+                      {
+                        "type": "NUMBER",
+                        "value": "3",
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "MUL",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "3",
+                "children": []
+              },
+              {
+                "type": "MUL",
+                "value": null,
+                "children": [
+                  {
+                    "type": "NUMBER",
+                    "value": "1",
+                    "children": []
+                  },
+                  {
+                    "type": "POW",
+                    "value": null,
+                    "children": [
+                      {
+                        "type": "VARIABLE",
+                        "value": "x",
+                        "children": []
+                      },
+                      {
+                        "type": "NUMBER",
+                        "value": "2",
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "state_expr": "((x)^4 + ((-4 * ((x)^1 * (x)^2)) + (-2 * (x)^3)) + (3 * (1 * (x)^2)))",
+      "candidate_actions": [
+        [
+          0,
+          "FLATTEN_ADD"
+        ],
+        [
+          4,
+          "SORT_COMMUTATIVE"
+        ],
+        [
+          5,
+          "FLATTEN_MUL"
+        ],
+        [
+          7,
+          "MERGE_POWER"
+        ],
+        [
+          7,
+          "SORT_COMMUTATIVE"
+        ],
+        [
+          8,
+          "REMOVE_ONE"
+        ],
+        [
+          19,
+          "FLATTEN_MUL"
+        ],
+        [
+          21,
+          "REMOVE_ONE"
+        ]
+      ],
+      "gold_action": "MERGE_POWER",
+      "gold_node_id": 7,
+      "complexity": 38
+    },
+    {
+      "state": {
+        "type": "ADD",
+        "value": null,
+        "children": [
+          {
+            "type": "POW",
+            "value": null,
+            "children": [
+              {
+                "type": "VARIABLE",
+                "value": "x",
+                "children": []
+              },
+              {
+                "type": "NUMBER",
+                "value": "4",
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "ADD",
+            "value": null,
+            "children": [
+              {
+                "type": "MUL",
+                "value": null,
+                "children": [
+                  {
+                    "type": "NUMBER",
+                    "value": "-4",
+                    "children": []
+                  },
+                  {
+                    "type": "POW",
+                    "value": null,
+                    "children": [
+                      {
+                        "type": "VARIABLE",
+                        "value": "x",
+                        "children": []
+                      },
+                      {
+                        "type": "NUMBER",
+                        "value": "3",
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "MUL",
+                "value": null,
+                "children": [
+                  {
+                    "type": "NUMBER",
+                    "value": "-2",
+                    "children": []
+                  },
+                  {
+                    "type": "POW",
+                    "value": null,
+                    "children": [
+                      {
+                        "type": "VARIABLE",
+                        "value": "x",
+                        "children": []
+                      },
+                      {
+                        "type": "NUMBER",
+                        "value": "3",
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "MUL",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "3",
+                "children": []
+              },
+              {
+                "type": "MUL",
+                "value": null,
+                "children": [
+                  {
+                    "type": "NUMBER",
+                    "value": "1",
+                    "children": []
+                  },
+                  {
+                    "type": "POW",
+                    "value": null,
+                    "children": [
+                      {
+                        "type": "VARIABLE",
+                        "value": "x",
+                        "children": []
+                      },
+                      {
+                        "type": "NUMBER",
+                        "value": "2",
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "state_expr": "((x)^4 + ((-4 * (x)^3) + (-2 * (x)^3)) + (3 * (1 * (x)^2)))",
+      "candidate_actions": [
+        [
+          0,
+          "FLATTEN_ADD"
+        ],
+        [
+          4,
+          "COMBINE_COEFF"
+        ],
+        [
+          4,
+          "SORT_COMMUTATIVE"
+        ],
+        [
+          15,
+          "FLATTEN_MUL"
+        ],
+        [
+          17,
+          "REMOVE_ONE"
+        ]
+      ],
+      "gold_action": "COMBINE_COEFF",
+      "gold_node_id": 4,
+      "complexity": 32
+    },
+    {
+      "state": {
+        "type": "ADD",
+        "value": null,
+        "children": [
+          {
+            "type": "POW",
+            "value": null,
+            "children": [
+              {
+                "type": "VARIABLE",
+                "value": "x",
+                "children": []
+              },
+              {
+                "type": "NUMBER",
+                "value": "4",
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "MUL",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "-6",
+                "children": []
+              },
+              {
+                "type": "POW",
+                "value": null,
+                "children": [
+                  {
+                    "type": "VARIABLE",
+                    "value": "x",
+                    "children": []
+                  },
+                  {
+                    "type": "NUMBER",
+                    "value": "3",
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "MUL",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "3",
+                "children": []
+              },
+              {
+                "type": "MUL",
+                "value": null,
+                "children": [
+                  {
+                    "type": "NUMBER",
+                    "value": "1",
+                    "children": []
+                  },
+                  {
+                    "type": "POW",
+                    "value": null,
+                    "children": [
+                      {
+                        "type": "VARIABLE",
+                        "value": "x",
+                        "children": []
+                      },
+                      {
+                        "type": "NUMBER",
+                        "value": "2",
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "state_expr": "((x)^4 + (-6 * (x)^3) + (3 * (1 * (x)^2)))",
+      "candidate_actions": [
+        [
+          9,
+          "FLATTEN_MUL"
+        ],
+        [
+          11,
+          "REMOVE_ONE"
+        ]
+      ],
+      "gold_action": "REMOVE_ONE",
+      "gold_node_id": 11,
+      "complexity": 23
+    }
+  ],
+  "difficulty": 3,
+  "inverse_sequence": [
+    "INTRODUCE_REDUNDANT_ONE",
+    "SPLIT_COEFFICIENT",
+    "SPLIT_POWER"
+  ]
+}

@@ -1,0 +1,140 @@
+{
+  "trajectory_id": "hard_0000006",
+  "canonical_expr": "(8 * x)",
+  "canonical_ast": {
+    "type": "MUL",
+    "value": null,
+    "children": [
+      {
+        "type": "NUMBER",
+        "value": "8",
+        "children": []
+      },
+      {
+        "type": "VARIABLE",
+        "value": "x",
+        "children": []
+      }
+    ]
+  },
+  "original_expr": "((5 + 3) * (1 * x))",
+  "original_ast": {
+    "type": "MUL",
+    "value": null,
+    "children": [
+      {
+        "type": "ADD",
+        "value": null,
+        "children": [
+          {
+            "type": "NUMBER",
+            "value": "5",
+            "children": []
+          },
+          {
+            "type": "NUMBER",
+            "value": "3",
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "NUMBER",
+            "value": "1",
+            "children": []
+          },
+          {
+            "type": "VARIABLE",
+            "value": "x",
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "steps": [
+    {
+      "state": {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "ADD",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "5",
+                "children": []
+              },
+              {
+                "type": "NUMBER",
+                "value": "3",
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "MUL",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "1",
+                "children": []
+              },
+              {
+                "type": "VARIABLE",
+                "value": "x",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      "state_expr": "((5 + 3) * (1 * x))",
+      "candidate_actions": [
+        [
+          0,
+          "EXPAND"
+        ],
+        [
+          0,
+          "FLATTEN_MUL"
+        ],
+        [
+          0,
+          "SORT_COMMUTATIVE"
+        ],
+        [
+          1,
+          "FOLD_CONST"
+        ],
+        [
+          1,
+          "SORT_COMMUTATIVE"
+        ],
+        [
+          4,
+          "REMOVE_ONE"
+        ]
+      ],
+      "gold_action": "FOLD_CONST",
+      "gold_node_id": 1,
+      "complexity": 0,
+      "hard_reasons": [
+        "model_top_not_cost_optimal",
+        "low_margin"
+      ],
+      "source_trajectory_id": "traj_0000143",
+      "source_rollout_step": 0
+    }
+  ],
+  "difficulty": 2,
+  "inverse_sequence": [],
+  "source": "hard_state_rollout"
+}

@@ -1,0 +1,208 @@
+{
+  "trajectory_id": "hard_0000001",
+  "canonical_expr": "((4 * (x)^2) + (8 * x))",
+  "canonical_ast": {
+    "type": "ADD",
+    "value": null,
+    "children": [
+      {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "NUMBER",
+            "value": "4",
+            "children": []
+          },
+          {
+            "type": "POW",
+            "value": null,
+            "children": [
+              {
+                "type": "VARIABLE",
+                "value": "x",
+                "children": []
+              },
+              {
+                "type": "NUMBER",
+                "value": "2",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "NUMBER",
+            "value": "8",
+            "children": []
+          },
+          {
+            "type": "VARIABLE",
+            "value": "x",
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "original_expr": "((4 * (x)^2) + ((5 + 3) * x))",
+  "original_ast": {
+    "type": "ADD",
+    "value": null,
+    "children": [
+      {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "NUMBER",
+            "value": "4",
+            "children": []
+          },
+          {
+            "type": "POW",
+            "value": null,
+            "children": [
+              {
+                "type": "VARIABLE",
+                "value": "x",
+                "children": []
+              },
+              {
+                "type": "NUMBER",
+                "value": "2",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "ADD",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "5",
+                "children": []
+              },
+              {
+                "type": "NUMBER",
+                "value": "3",
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "VARIABLE",
+            "value": "x",
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "steps": [
+    {
+      "state": {
+        "type": "ADD",
+        "value": null,
+        "children": [
+          {
+            "type": "MUL",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "4",
+                "children": []
+              },
+              {
+                "type": "POW",
+                "value": null,
+                "children": [
+                  {
+                    "type": "VARIABLE",
+                    "value": "x",
+                    "children": []
+                  },
+                  {
+                    "type": "NUMBER",
+                    "value": "2",
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "MUL",
+            "value": null,
+            "children": [
+              {
+                "type": "ADD",
+                "value": null,
+                "children": [
+                  {
+                    "type": "NUMBER",
+                    "value": "5",
+                    "children": []
+                  },
+                  {
+                    "type": "NUMBER",
+                    "value": "3",
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "type": "VARIABLE",
+                "value": "x",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      "state_expr": "((4 * (x)^2) + ((5 + 3) * x))",
+      "candidate_actions": [
+        [
+          6,
+          "EXPAND"
+        ],
+        [
+          6,
+          "SORT_COMMUTATIVE"
+        ],
+        [
+          7,
+          "FOLD_CONST"
+        ],
+        [
+          7,
+          "SORT_COMMUTATIVE"
+        ]
+      ],
+      "gold_action": "FOLD_CONST",
+      "gold_node_id": 7,
+      "complexity": 0,
+      "hard_reasons": [
+        "low_margin"
+      ],
+      "source_trajectory_id": "traj_0000010",
+      "source_rollout_step": 0
+    }
+  ],
+  "difficulty": 1,
+  "inverse_sequence": [],
+  "source": "hard_state_rollout"
+}

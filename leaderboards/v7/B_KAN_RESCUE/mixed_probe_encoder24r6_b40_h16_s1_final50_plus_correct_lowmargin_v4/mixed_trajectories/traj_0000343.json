@@ -1,0 +1,230 @@
+{
+  "trajectory_id": "traj_0000275",
+  "canonical_expr": "((6 * (x)^2) + (8 * x))",
+  "canonical_ast": {
+    "type": "ADD",
+    "value": null,
+    "children": [
+      {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "NUMBER",
+            "value": "6",
+            "children": []
+          },
+          {
+            "type": "POW",
+            "value": null,
+            "children": [
+              {
+                "type": "VARIABLE",
+                "value": "x",
+                "children": []
+              },
+              {
+                "type": "NUMBER",
+                "value": "2",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "NUMBER",
+            "value": "8",
+            "children": []
+          },
+          {
+            "type": "VARIABLE",
+            "value": "x",
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "original_expr": "((6 * ((x)^1 * (x)^1)) + (8 * x))",
+  "original_ast": {
+    "type": "ADD",
+    "value": null,
+    "children": [
+      {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "NUMBER",
+            "value": "6",
+            "children": []
+          },
+          {
+            "type": "MUL",
+            "value": null,
+            "children": [
+              {
+                "type": "POW",
+                "value": null,
+                "children": [
+                  {
+                    "type": "VARIABLE",
+                    "value": "x",
+                    "children": []
+                  },
+                  {
+                    "type": "NUMBER",
+                    "value": "1",
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "type": "POW",
+                "value": null,
+                "children": [
+                  {
+                    "type": "VARIABLE",
+                    "value": "x",
+                    "children": []
+                  },
+                  {
+                    "type": "NUMBER",
+                    "value": "1",
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "NUMBER",
+            "value": "8",
+            "children": []
+          },
+          {
+            "type": "VARIABLE",
+            "value": "x",
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "steps": [
+    {
+      "state": {
+        "type": "ADD",
+        "value": null,
+        "children": [
+          {
+            "type": "MUL",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "6",
+                "children": []
+              },
+              {
+                "type": "MUL",
+                "value": null,
+                "children": [
+                  {
+                    "type": "POW",
+                    "value": null,
+                    "children": [
+                      {
+                        "type": "VARIABLE",
+                        "value": "x",
+                        "children": []
+                      },
+                      {
+                        "type": "NUMBER",
+                        "value": "1",
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "type": "POW",
+                    "value": null,
+                    "children": [
+                      {
+                        "type": "VARIABLE",
+                        "value": "x",
+                        "children": []
+                      },
+                      {
+                        "type": "NUMBER",
+                        "value": "1",
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "MUL",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "8",
+                "children": []
+              },
+              {
+                "type": "VARIABLE",
+                "value": "x",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      "state_expr": "((6 * ((x)^1 * (x)^1)) + (8 * x))",
+      "candidate_actions": [
+        [
+          0,
+          "SORT_COMMUTATIVE"
+        ],
+        [
+          1,
+          "FLATTEN_MUL"
+        ],
+        [
+          3,
+          "MERGE_POWER"
+        ],
+        [
+          4,
+          "REMOVE_ONE"
+        ],
+        [
+          7,
+          "REMOVE_ONE"
+        ]
+      ],
+      "gold_action": "MERGE_POWER",
+      "gold_node_id": 3,
+      "complexity": 19
+    }
+  ],
+  "difficulty": 1,
+  "inverse_sequence": [
+    "SPLIT_POWER"
+  ]
+}

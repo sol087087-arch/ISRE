@@ -1,0 +1,166 @@
+{
+  "trajectory_id": "hard_0000037",
+  "canonical_expr": "(6 * x)",
+  "canonical_ast": {
+    "type": "MUL",
+    "value": null,
+    "children": [
+      {
+        "type": "NUMBER",
+        "value": "6",
+        "children": []
+      },
+      {
+        "type": "VARIABLE",
+        "value": "x",
+        "children": []
+      }
+    ]
+  },
+  "original_expr": "((((x + 0) + x) + x) * 2)",
+  "original_ast": {
+    "type": "MUL",
+    "value": null,
+    "children": [
+      {
+        "type": "ADD",
+        "value": null,
+        "children": [
+          {
+            "type": "ADD",
+            "value": null,
+            "children": [
+              {
+                "type": "ADD",
+                "value": null,
+                "children": [
+                  {
+                    "type": "VARIABLE",
+                    "value": "x",
+                    "children": []
+                  },
+                  {
+                    "type": "NUMBER",
+                    "value": "0",
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "type": "VARIABLE",
+                "value": "x",
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "VARIABLE",
+            "value": "x",
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "NUMBER",
+        "value": "2",
+        "children": []
+      }
+    ]
+  },
+  "steps": [
+    {
+      "state": {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "ADD",
+            "value": null,
+            "children": [
+              {
+                "type": "ADD",
+                "value": null,
+                "children": [
+                  {
+                    "type": "ADD",
+                    "value": null,
+                    "children": [
+                      {
+                        "type": "VARIABLE",
+                        "value": "x",
+                        "children": []
+                      },
+                      {
+                        "type": "NUMBER",
+                        "value": "0",
+                        "children": []
+                      }
+                    ]
+                  },
+                  {
+                    "type": "VARIABLE",
+                    "value": "x",
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "type": "VARIABLE",
+                "value": "x",
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "NUMBER",
+            "value": "2",
+            "children": []
+          }
+        ]
+      },
+      "state_expr": "((((x + 0) + x) + x) * 2)",
+      "candidate_actions": [
+        [
+          0,
+          "EXPAND"
+        ],
+        [
+          0,
+          "SORT_COMMUTATIVE"
+        ],
+        [
+          1,
+          "FLATTEN_ADD"
+        ],
+        [
+          1,
+          "SORT_COMMUTATIVE"
+        ],
+        [
+          2,
+          "FLATTEN_ADD"
+        ],
+        [
+          2,
+          "SORT_COMMUTATIVE"
+        ],
+        [
+          3,
+          "REMOVE_ZERO"
+        ]
+      ],
+      "gold_action": "FLATTEN_ADD",
+      "gold_node_id": 1,
+      "complexity": 0,
+      "hard_reasons": [
+        "model_top_not_cost_optimal",
+        "low_margin"
+      ],
+      "source_trajectory_id": "traj_0000879",
+      "source_rollout_step": 0
+    }
+  ],
+  "difficulty": 4,
+  "inverse_sequence": [],
+  "source": "hard_state_rollout"
+}

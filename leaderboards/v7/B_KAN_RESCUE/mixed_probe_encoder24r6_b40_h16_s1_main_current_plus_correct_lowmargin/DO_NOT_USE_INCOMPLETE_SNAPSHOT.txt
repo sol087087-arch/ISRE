@@ -1,0 +1,1 @@
+﻿Incomplete snapshot: build aborted on a live-miner race where a label row existed before its trajectory file. Kept for audit only.

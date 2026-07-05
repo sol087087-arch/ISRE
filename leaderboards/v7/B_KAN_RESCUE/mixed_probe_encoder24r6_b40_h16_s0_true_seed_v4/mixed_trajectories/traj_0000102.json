@@ -1,0 +1,115 @@
+{
+  "trajectory_id": "traj_0000056",
+  "canonical_expr": "x",
+  "canonical_ast": {
+    "type": "VARIABLE",
+    "value": "x",
+    "children": []
+  },
+  "original_expr": "((1 * x) + 0)",
+  "original_ast": {
+    "type": "ADD",
+    "value": null,
+    "children": [
+      {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "NUMBER",
+            "value": "1",
+            "children": []
+          },
+          {
+            "type": "VARIABLE",
+            "value": "x",
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "NUMBER",
+        "value": "0",
+        "children": []
+      }
+    ]
+  },
+  "steps": [
+    {
+      "state": {
+        "type": "ADD",
+        "value": null,
+        "children": [
+          {
+            "type": "MUL",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "1",
+                "children": []
+              },
+              {
+                "type": "VARIABLE",
+                "value": "x",
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "NUMBER",
+            "value": "0",
+            "children": []
+          }
+        ]
+      },
+      "state_expr": "((1 * x) + 0)",
+      "candidate_actions": [
+        [
+          0,
+          "REMOVE_ZERO"
+        ],
+        [
+          1,
+          "REMOVE_ONE"
+        ]
+      ],
+      "gold_action": "REMOVE_ZERO",
+      "gold_node_id": 0,
+      "complexity": 7
+    },
+    {
+      "state": {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "NUMBER",
+            "value": "1",
+            "children": []
+          },
+          {
+            "type": "VARIABLE",
+            "value": "x",
+            "children": []
+          }
+        ]
+      },
+      "state_expr": "(1 * x)",
+      "candidate_actions": [
+        [
+          0,
+          "REMOVE_ONE"
+        ]
+      ],
+      "gold_action": "REMOVE_ONE",
+      "gold_node_id": 0,
+      "complexity": 4
+    }
+  ],
+  "difficulty": 2,
+  "inverse_sequence": [
+    "INTRODUCE_REDUNDANT_ZERO",
+    "INTRODUCE_REDUNDANT_ONE"
+  ]
+}

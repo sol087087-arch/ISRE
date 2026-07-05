@@ -1,0 +1,126 @@
+{
+  "trajectory_id": "traj_0000270",
+  "canonical_expr": "(-1 * (x)^2)",
+  "canonical_ast": {
+    "type": "MUL",
+    "value": null,
+    "children": [
+      {
+        "type": "NUMBER",
+        "value": "-1",
+        "children": []
+      },
+      {
+        "type": "POW",
+        "value": null,
+        "children": [
+          {
+            "type": "VARIABLE",
+            "value": "x",
+            "children": []
+          },
+          {
+            "type": "NUMBER",
+            "value": "2",
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "original_expr": "(-1 * ((1 * x))^2)",
+  "original_ast": {
+    "type": "MUL",
+    "value": null,
+    "children": [
+      {
+        "type": "NUMBER",
+        "value": "-1",
+        "children": []
+      },
+      {
+        "type": "POW",
+        "value": null,
+        "children": [
+          {
+            "type": "MUL",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "1",
+                "children": []
+              },
+              {
+                "type": "VARIABLE",
+                "value": "x",
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "NUMBER",
+            "value": "2",
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "steps": [
+    {
+      "state": {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "NUMBER",
+            "value": "-1",
+            "children": []
+          },
+          {
+            "type": "POW",
+            "value": null,
+            "children": [
+              {
+                "type": "MUL",
+                "value": null,
+                "children": [
+                  {
+                    "type": "NUMBER",
+                    "value": "1",
+                    "children": []
+                  },
+                  {
+                    "type": "VARIABLE",
+                    "value": "x",
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "type": "NUMBER",
+                "value": "2",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      "state_expr": "(-1 * ((1 * x))^2)",
+      "candidate_actions": [
+        [
+          3,
+          "REMOVE_ONE"
+        ]
+      ],
+      "gold_action": "REMOVE_ONE",
+      "gold_node_id": 3,
+      "complexity": 10
+    }
+  ],
+  "difficulty": 1,
+  "inverse_sequence": [
+    "INTRODUCE_REDUNDANT_ONE"
+  ]
+}

@@ -1,0 +1,1 @@
+﻿Bad snapshot: used source trajectory_file names instead of local row-indexed hard_trajectories, so it captured only 4 states. Kept for audit only.

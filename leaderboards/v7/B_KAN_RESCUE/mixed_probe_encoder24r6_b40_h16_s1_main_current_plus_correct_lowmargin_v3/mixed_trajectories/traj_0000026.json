@@ -1,0 +1,128 @@
+{
+  "trajectory_id": "hard_0000026",
+  "canonical_expr": "(x + -6)",
+  "canonical_ast": {
+    "type": "ADD",
+    "value": null,
+    "children": [
+      {
+        "type": "VARIABLE",
+        "value": "x",
+        "children": []
+      },
+      {
+        "type": "NUMBER",
+        "value": "-6",
+        "children": []
+      }
+    ]
+  },
+  "original_expr": "(((1 * x) + 0) + -6)",
+  "original_ast": {
+    "type": "ADD",
+    "value": null,
+    "children": [
+      {
+        "type": "ADD",
+        "value": null,
+        "children": [
+          {
+            "type": "MUL",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "1",
+                "children": []
+              },
+              {
+                "type": "VARIABLE",
+                "value": "x",
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "NUMBER",
+            "value": "0",
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "NUMBER",
+        "value": "-6",
+        "children": []
+      }
+    ]
+  },
+  "steps": [
+    {
+      "state": {
+        "type": "ADD",
+        "value": null,
+        "children": [
+          {
+            "type": "ADD",
+            "value": null,
+            "children": [
+              {
+                "type": "MUL",
+                "value": null,
+                "children": [
+                  {
+                    "type": "NUMBER",
+                    "value": "1",
+                    "children": []
+                  },
+                  {
+                    "type": "VARIABLE",
+                    "value": "x",
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "type": "NUMBER",
+                "value": "0",
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "NUMBER",
+            "value": "-6",
+            "children": []
+          }
+        ]
+      },
+      "state_expr": "(((1 * x) + 0) + -6)",
+      "candidate_actions": [
+        [
+          0,
+          "FLATTEN_ADD"
+        ],
+        [
+          1,
+          "REMOVE_ZERO"
+        ],
+        [
+          2,
+          "REMOVE_ONE"
+        ]
+      ],
+      "gold_action": "REMOVE_ZERO",
+      "gold_node_id": 1,
+      "complexity": 0,
+      "hard_reasons": [
+        "model_top_not_cost_optimal",
+        "low_margin"
+      ],
+      "source_trajectory_id": "traj_0000705",
+      "source_rollout_step": 1
+    }
+  ],
+  "difficulty": 2,
+  "inverse_sequence": [],
+  "source": "hard_state_rollout"
+}

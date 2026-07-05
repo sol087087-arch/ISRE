@@ -1,0 +1,29 @@
+{
+  "ckpt": "leaderboards\\v7\\B_KAN_RESCUE\\checkpoints_encoder24r6_kan_b40_h16_s1\\best.pt",
+  "data_dir": "isre\\trajectories_v7_bfs",
+  "split": "train",
+  "output_labels": "leaderboards\\v7\\B_KAN_RESCUE\\hard_state_probe_encoder24r6_b40_h16_s1\\hard_labels.jsonl",
+  "output_trajectories": "leaderboards\\v7\\B_KAN_RESCUE\\hard_state_probe_encoder24r6_b40_h16_s1\\hard_trajectories",
+  "trajectories_seen": 120,
+  "rollout_states_seen": 334,
+  "unique_states_seen": 328,
+  "labeled_states": 328,
+  "hard_states_written": 2,
+  "model_top_not_cost_optimal": 2,
+  "low_margin_states": 2,
+  "multi_optimal_labeled_states": 183,
+  "reason_counts": {
+    "model_top_not_cost_optimal": 2,
+    "low_margin": 2
+  },
+  "successes": 120,
+  "loops": 0,
+  "dead_ends": 0,
+  "timeouts": 0,
+  "bfs_cache_entries": 1574,
+  "max_expansions": 2000,
+  "max_depth": 12,
+  "margin_threshold": 0.25,
+  "elapsed_seconds": 1002.892683506012,
+  "rollout_states_per_second": 0.33303663043225085
+}

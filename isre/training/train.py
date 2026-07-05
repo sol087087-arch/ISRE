@@ -333,6 +333,7 @@ class Trainer:
         weight_decay: float = 1e-4,
         device: str = "cpu",
         cost_label_cache: Optional[Dict[Tuple[str, str], Dict[str, Any]]] = None,
+        rank_cache_only: bool = False,
     ):
         # encoder is None for the KAN arm (KAN scores hand-crafted features
         # directly from the AST state — no GRU encoder). All MLP-path
@@ -341,6 +342,7 @@ class Trainer:
         self.policy = policy.to(device)
         self.device = device
         self.cost_label_cache = cost_label_cache or {}
+        self.rank_cache_only = rank_cache_only
 
         if self.encoder is not None:
             trainable = list(encoder.parameters()) + list(policy.parameters())
@@ -481,6 +483,8 @@ class Trainer:
                 cached = self._cached_cost_to_go_labels(step)
                 if cached is not None:
                     optimal_indices, candidate_costs = cached
+                elif self.rank_cache_only:
+                    optimal_indices, candidate_costs = [], []
                 else:
                     optimal_indices, candidate_costs = self._cost_to_go_labels(
                         step,
@@ -703,6 +707,7 @@ def train(
     cost_max_depth: int = 20,
     cost_labels: str | None = None,
     init_ckpt: str | None = None,
+    rank_cache_only: bool = False,
 ):
     if device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -715,6 +720,8 @@ def train(
             f"max_expansions={cost_max_expansions}, "
             f"max_depth={cost_max_depth}, margin={rank_margin}"
         )
+        if rank_cache_only:
+            print("  rank-cache-only: cache misses fall back to CE (no online BFS)")
 
     # Global seeding — REQUIRED for the 5-seed campaign to be meaningful.
     # curriculum_target is already a pure function of epoch (identical
@@ -888,6 +895,7 @@ def train(
         lr=lr,
         device=device,
         cost_label_cache=cost_label_cache,
+        rank_cache_only=rank_cache_only,
     )
 
     # ── Training loop ──────────────────────────────────
@@ -928,6 +936,41 @@ def train(
         # (curriculum is deterministic per-epoch inside train_epoch — no
         #  noisy-signal advancement step here anymore)
 
+        # Save latest weights as well as best. This is important for small
+        # fine-tune/probe runs where the validation split can be empty and
+        # best.pt may therefore stay pinned to epoch 1.
+        last_ckpt = {
+            "epoch": epoch,
+            "policy": policy.state_dict(),
+            "optimizer": trainer.optimizer.state_dict(),
+            "val_loss": val_metrics.avg_loss,
+            "policy_kind": policy_kind,
+            "loss_kind": loss_kind,
+            "rank_cache_only": rank_cache_only,
+            "init_ckpt": init_ckpt,
+        }
+        if encoder is not None:
+            last_ckpt["encoder"] = encoder.state_dict()
+            last_ckpt["hidden_dim"] = hidden_dim
+            last_ckpt["num_rounds"] = num_rounds
+            if policy_kind == "mlp":
+                last_ckpt["policy_hidden_dim"] = policy_hidden
+                last_ckpt["action_emb_dim"] = action_emb_dim
+            else:
+                last_ckpt["kan_hidden"] = kan_hidden
+                last_ckpt["kan_action_emb_dim"] = kan_action_emb_dim
+                last_ckpt["kan_bottleneck_dim"] = kan_bottleneck_dim
+                last_ckpt["kan_depth"] = kan_depth
+                last_ckpt["kan_grid"] = kan_grid
+                last_ckpt["kan_spline_order"] = kan_spline_order
+        else:
+            last_ckpt["kan_hidden"] = kan_hidden
+            if policy_kind == "kan_ae":
+                last_ckpt["kan_action_emb_dim"] = kan_action_emb_dim
+            last_ckpt["kan_grid"] = kan_grid
+            last_ckpt["kan_spline_order"] = kan_spline_order
+        torch.save(last_ckpt, save_path / "last.pt")
+
         # Save best
         if val_metrics.avg_loss < best_val_loss:
             best_val_loss = val_metrics.avg_loss
@@ -938,6 +981,7 @@ def train(
                 "val_loss": best_val_loss,
                 "policy_kind": policy_kind,
                 "loss_kind": loss_kind,
+                "rank_cache_only": rank_cache_only,
                 "init_ckpt": init_ckpt,
             }
             # MLP arm keeps the exact original key set (encoder present);
@@ -1033,6 +1077,12 @@ if __name__ == "__main__":
                         help="Optional JSONL cache from "
                              "scripts/build_cost_to_go_labels.py. Used by "
                              "--loss rank_cost_to_go before online BFS.")
+    parser.add_argument("--rank-cache-only", action="store_true",
+                        help="For --loss rank_cost_to_go, use ranking loss "
+                             "only for states present in --cost-labels. "
+                             "Cache misses fall back to CE instead of online "
+                             "BFS; useful for mixed hard-state + rehearsal "
+                             "fine-tunes.")
     args = parser.parse_args()
 
     train(
@@ -1062,4 +1112,5 @@ if __name__ == "__main__":
         cost_max_expansions=args.cost_max_expansions,
         cost_max_depth=args.cost_max_depth,
         cost_labels=args.cost_labels,
+        rank_cache_only=args.rank_cache_only,
     )

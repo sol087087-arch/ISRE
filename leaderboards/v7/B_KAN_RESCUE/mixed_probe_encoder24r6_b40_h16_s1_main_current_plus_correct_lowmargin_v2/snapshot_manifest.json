@@ -1,0 +1,21 @@
+{
+  "main_rows_available": 45,
+  "low_margin_rows_available": 18,
+  "main_added": 2,
+  "correct_low_margin_added": 2,
+  "duplicate_skipped": 0,
+  "missing_trajectory_skipped": 47,
+  "wrong_low_margin_skipped": 12,
+  "combined_hard_like_states": 4,
+  "rehearsal_ratio": "5:1 rehearsal:hard_like",
+  "rehearsal_target": 20,
+  "rehearsal_added": 20,
+  "mixed_total_files": 24,
+  "hard_trajectory_files": 4,
+  "hard_label_rows": 4,
+  "main_source_dir": "C:\\tmp\\isre-cost-to-go-ranking-public\\leaderboards\\v7\\B_KAN_RESCUE\\hard_state_probe_encoder24r6_b40_h16_s1_m2000",
+  "low_margin_source_dir": "C:\\tmp\\isre-cost-to-go-ranking-public\\leaderboards\\v7\\B_KAN_RESCUE\\low_margin_probe_encoder24r6_b40_h16_s1_t1_m800",
+  "base_rehearsal_data": "C:\\GitHub\\ISRE\\isre\\trajectories_v7_bfs",
+  "snapshot_dir": "C:\\tmp\\isre-cost-to-go-ranking-public\\leaderboards\\v7\\B_KAN_RESCUE\\mixed_probe_encoder24r6_b40_h16_s1_main_current_plus_correct_lowmargin_v2",
+  "note": "Built while miners were still running; rows with missing trajectory files were skipped to keep the snapshot internally consistent."
+}

@@ -1,0 +1,11 @@
+{
+  "main_rows": 42,
+  "low_margin_rows": 5,
+  "main_added": 42,
+  "extra_correct_low_margin_added": 3,
+  "combined_hard_like_states": 45,
+  "rehearsal_target": 225,
+  "rehearsal_added": 225,
+  "mixed_total_files": 270,
+  "snapshot_dir": "leaderboards\\v7\\B_KAN_RESCUE\\mixed_probe_encoder24r6_b40_h16_s1_main41_plus_lowmargin"
+}

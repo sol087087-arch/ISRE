@@ -295,6 +295,7 @@ def mine_hard_states(
                         "candidate_costs": rows,
                     }
                     labels.write(json.dumps(record, ensure_ascii=True) + "\n")
+                    labels.flush()
 
                     hard_id = f"hard_{hard_states_written:07d}"
                     hard_traj = {

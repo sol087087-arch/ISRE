@@ -1,0 +1,21 @@
+{
+  "main_rows_available": 45,
+  "low_margin_rows_available": 18,
+  "main_added": 45,
+  "correct_low_margin_added": 6,
+  "duplicate_skipped": 0,
+  "missing_trajectory_skipped": 0,
+  "wrong_low_margin_skipped": 12,
+  "combined_hard_like_states": 51,
+  "rehearsal_ratio": "5:1 rehearsal:hard_like",
+  "rehearsal_target": 255,
+  "rehearsal_added": 255,
+  "mixed_total_files": 306,
+  "hard_trajectory_files": 51,
+  "hard_label_rows": 51,
+  "main_source_dir": "C:\\tmp\\isre-cost-to-go-ranking-public\\leaderboards\\v7\\B_KAN_RESCUE\\hard_state_probe_encoder24r6_b40_h16_s1_m2000",
+  "low_margin_source_dir": "C:\\tmp\\isre-cost-to-go-ranking-public\\leaderboards\\v7\\B_KAN_RESCUE\\low_margin_probe_encoder24r6_b40_h16_s1_t1_m800",
+  "base_rehearsal_data": "C:\\GitHub\\ISRE\\isre\\trajectories_v7_bfs",
+  "snapshot_dir": "C:\\tmp\\isre-cost-to-go-ranking-public\\leaderboards\\v7\\B_KAN_RESCUE\\mixed_probe_encoder24r6_b40_h16_s1_main_current_plus_correct_lowmargin_v3",
+  "note": "Built while miners were still running. Labels are paired with local hard_trajectories by row index: label row N -> traj_N.json."
+}

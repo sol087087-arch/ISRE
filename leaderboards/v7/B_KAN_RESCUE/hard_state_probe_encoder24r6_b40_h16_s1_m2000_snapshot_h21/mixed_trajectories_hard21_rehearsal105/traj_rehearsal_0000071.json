@@ -1,0 +1,105 @@
+{
+  "trajectory_id": "traj_0000080",
+  "canonical_expr": "(9 * x)",
+  "canonical_ast": {
+    "type": "MUL",
+    "value": null,
+    "children": [
+      {
+        "type": "NUMBER",
+        "value": "9",
+        "children": []
+      },
+      {
+        "type": "VARIABLE",
+        "value": "x",
+        "children": []
+      }
+    ]
+  },
+  "original_expr": "((6 + 3) * x)",
+  "original_ast": {
+    "type": "MUL",
+    "value": null,
+    "children": [
+      {
+        "type": "ADD",
+        "value": null,
+        "children": [
+          {
+            "type": "NUMBER",
+            "value": "6",
+            "children": []
+          },
+          {
+            "type": "NUMBER",
+            "value": "3",
+            "children": []
+          }
+        ]
+      },
+      {
+        "type": "VARIABLE",
+        "value": "x",
+        "children": []
+      }
+    ]
+  },
+  "steps": [
+    {
+      "state": {
+        "type": "MUL",
+        "value": null,
+        "children": [
+          {
+            "type": "ADD",
+            "value": null,
+            "children": [
+              {
+                "type": "NUMBER",
+                "value": "6",
+                "children": []
+              },
+              {
+                "type": "NUMBER",
+                "value": "3",
+                "children": []
+              }
+            ]
+          },
+          {
+            "type": "VARIABLE",
+            "value": "x",
+            "children": []
+          }
+        ]
+      },
+      "state_expr": "((6 + 3) * x)",
+      "candidate_actions": [
+        [
+          0,
+          "EXPAND"
+        ],
+        [
+          0,
+          "SORT_COMMUTATIVE"
+        ],
+        [
+          1,
+          "FOLD_CONST"
+        ],
+        [
+          1,
+          "SORT_COMMUTATIVE"
+        ]
+      ],
+      "gold_action": "FOLD_CONST",
+      "gold_node_id": 1,
+      "complexity": 7
+    }
+  ],
+  "difficulty": 1,
+  "inverse_sequence": [
+    "UNFOLD_CONST"
+  ]
+}

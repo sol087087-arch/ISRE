@@ -1,0 +1,29 @@
+{
+  "ckpt": "C:\\GitHub\\ISRE\\leaderboards\\v7\\B_KAN_RESCUE\\checkpoints_encoder24r6_kan_b40_h16_s2\\best.pt",
+  "data_dir": "C:\\GitHub\\ISRE\\isre\\trajectories_v7_bfs",
+  "split": "train",
+  "output_labels": "C:\\tmp\\isre-cost-to-go-ranking-public\\leaderboards\\v7\\B_KAN_RESCUE\\hard_state_probe_encoder24r6_b40_h16_s2_true_seed_m2000\\hard_labels.jsonl",
+  "output_trajectories": "C:\\tmp\\isre-cost-to-go-ranking-public\\leaderboards\\v7\\B_KAN_RESCUE\\hard_state_probe_encoder24r6_b40_h16_s2_true_seed_m2000\\hard_trajectories",
+  "trajectories_seen": 924,
+  "rollout_states_seen": 2783,
+  "unique_states_seen": 2712,
+  "labeled_states": 2708,
+  "hard_states_written": 50,
+  "model_top_not_cost_optimal": 45,
+  "low_margin_states": 41,
+  "multi_optimal_labeled_states": 1589,
+  "reason_counts": {
+    "model_top_not_cost_optimal": 45,
+    "low_margin": 41
+  },
+  "successes": 923,
+  "loops": 0,
+  "dead_ends": 0,
+  "timeouts": 0,
+  "bfs_cache_entries": 13896,
+  "max_expansions": 2000,
+  "max_depth": 12,
+  "margin_threshold": 0.25,
+  "elapsed_seconds": 9180.493365049362,
+  "rollout_states_per_second": 0.30314274945124764
+}

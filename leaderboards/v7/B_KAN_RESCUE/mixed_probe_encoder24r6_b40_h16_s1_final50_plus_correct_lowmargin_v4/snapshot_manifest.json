@@ -1,0 +1,23 @@
+{
+  "main_rows_available": 50,
+  "low_margin_rows_available": 51,
+  "main_added": 50,
+  "correct_low_margin_added": 21,
+  "duplicate_skipped": 3,
+  "missing_trajectory_skipped": 0,
+  "wrong_low_margin_skipped": 19,
+  "non_low_margin_skipped": 8,
+  "combined_hard_like_states": 71,
+  "rehearsal_ratio": "5:1 rehearsal:hard_like",
+  "rehearsal_target": 355,
+  "rehearsal_added": 355,
+  "mixed_total_files": 426,
+  "hard_trajectory_files": 71,
+  "hard_label_rows": 71,
+  "main_source_dir": "C:\\tmp\\isre-cost-to-go-ranking-public\\leaderboards\\v7\\B_KAN_RESCUE\\hard_state_probe_encoder24r6_b40_h16_s1_m2000",
+  "low_margin_source_dir": "C:\\tmp\\isre-cost-to-go-ranking-public\\leaderboards\\v7\\B_KAN_RESCUE\\low_margin_probe_encoder24r6_b40_h16_s1_t1_m800",
+  "base_rehearsal_data": "C:\\GitHub\\ISRE\\isre\\trajectories_v7_bfs",
+  "snapshot_dir": "C:\\tmp\\isre-cost-to-go-ranking-public\\leaderboards\\v7\\B_KAN_RESCUE\\mixed_probe_encoder24r6_b40_h16_s1_final50_plus_correct_lowmargin_v4",
+  "training_plan": "Use a softer fine-tune than V3: lr=3e-4, epochs=25, keep best.pt and last.pt for overfit check.",
+  "note": "Final V4 snapshot: all 50 main hard states plus final correct low-margin states; labels paired with local hard_trajectories by row index."
+}
